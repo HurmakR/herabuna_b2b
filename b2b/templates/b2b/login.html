@@ -1,0 +1,10 @@
+{% extends "b2b/base.html" %}
+{% block content %}
+<h2>Вхід для дилерів</h2>
+<form method="post" action="{% url 'b2b:login' %}">{% csrf_token %}
+  {{ form.as_p }}
+  {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+  <button class="btn" type="submit">Увійти</button>
+</form>
+<p>Немає акаунта? <a href="{% url 'b2b:signup' %}">Реєстрація</a></p>
+{% endblock %}

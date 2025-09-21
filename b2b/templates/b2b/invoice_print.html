@@ -1,0 +1,21 @@
+{% extends "b2b/base.html" %}
+{% block content %}
+<h2>Рахунок № {{ order.id }} від {{ order.created_at|date:"d.m.Y" }}</h2>
+<p><strong>Постачальник:</strong> Росан-Сервіс / iCare (herabuna.com.ua)</p>
+<p><strong>Покупець:</strong> {{ order.dealer.company_name }} ({{ order.dealer.username }})</p>
+<table>
+  <tr><th>SKU</th><th>Назва</th><th>К-сть</th><th>Ціна, грн</th><th>Сума, грн</th></tr>
+  {% for i in order.items.all %}
+  <tr>
+    <td>{{ i.product.sku }}</td>
+    <td>{{ i.product.name }}</td>
+    <td class="right">{{ i.qty }}</td>
+    <td class="right">{{ i.price }}</td>
+    <td class="right">{{ i.line_total }}</td>
+  </tr>
+  {% endfor %}
+  <tr><td colspan="4" class="right"><strong>Разом:</strong></td><td class="right"><strong>{{ order.total }}</strong></td></tr>
+</table>
+<p style="margin-top:20px">Підпис _________ / Печатка _________</p>
+<p><button class="btn" onclick="window.print()">Друк</button></p>
+{% endblock %}

@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Django
+db.sqlite3
+staticfiles/
+media/
+*.log
+
+# Secrets / env
+.env
+.env.*
+
+# PyCharm
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

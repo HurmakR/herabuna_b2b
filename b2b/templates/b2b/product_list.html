@@ -1,0 +1,22 @@
+{% extends "b2b/base.html" %}
+{% block content %}
+<h2>Каталог</h2>
+<form method="get">
+  <input type="text" name="q" value="{{ q }}" placeholder="Пошук за назвою або SKU">
+  <button class="btn" type="submit">Пошук</button>
+</form>
+<table>
+  <tr><th>SKU</th><th>Назва</th><th>Ціна гурт, грн</th><th>Наявність</th><th></th></tr>
+  {% for p in products %}
+  <tr>
+    <td>{{ p.sku }}</td>
+    <td>{{ p.name }}</td>
+    <td class="right">{{ p.wholesale_price }}</td>
+    <td class="right">{{ p.stock_qty }}</td>
+    <td><a class="btn" href="{% url 'b2b:add_to_cart' p.id %}">Додати</a></td>
+  </tr>
+  {% empty %}
+  <tr><td colspan="5">Нічого не знайдено.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

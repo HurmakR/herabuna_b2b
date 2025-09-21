@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>B2B — Herabuna</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    header, nav, main { max-width: 960px; margin: 0 auto; }
+    nav a { margin-right: 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #ddd; padding: 8px; }
+    th { background: #f6f6f6; }
+    .right { text-align: right; }
+    .btn { display: inline-block; padding: 6px 12px; border: 1px solid #333; text-decoration: none; margin: 4px 0; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Herabuna B2B</h1>
+  <nav>
+    {% if request.user.is_authenticated %}
+      <a href="{% url 'b2b:dashboard' %}">Головна</a>
+      <a href="{% url 'b2b:product_list' %}">Каталог</a>
+      <a href="{% url 'b2b:cart' %}">Кошик</a>
+      <a href="{% url 'b2b:logout' %}">Вийти</a>
+    {% else %}
+      <a href="{% url 'b2b:login' %}">Вхід</a>
+      <a href="{% url 'b2b:signup' %}">Реєстрація</a>
+    {% endif %}
+  </nav>
+  <hr>
+</header>
+<main>{% block content %}{% endblock %}</main>
+</body>
+</html>

@@ -1,0 +1,25 @@
+{% extends "b2b/base.html" %}
+{% block content %}
+<h2>Замовлення № {{ order.id }}</h2>
+<p>Статус: <strong>{{ order.get_status_display }}</strong></p>
+<table>
+  <tr><th>SKU</th><th>Назва</th><th>К-сть</th><th>Ціна</th><th>Сума</th></tr>
+  {% for i in order.items.all %}
+  <tr>
+    <td>{{ i.product.sku }}</td>
+    <td>{{ i.product.name }}</td>
+    <td class="right">{{ i.qty }}</td>
+    <td class="right">{{ i.price }}</td>
+    <td class="right">{{ i.line_total }}</td>
+  </tr>
+  {% endfor %}
+  <tr><td colspan="4" class="right"><strong>Разом:</strong></td><td class="right"><strong>{{ order.total }}</strong></td></tr>
+</table>
+
+<p>
+  <a class="btn" href="{% url 'b2b:invoice_print' order.id %}">Друк рахунку (HTML)</a>
+  <a class="btn" href="{% url 'b2b:waybill_print' order.id %}">Друк накладної (HTML)</a>
+  <a class="btn" href="{% url 'b2b:invoice_pdf' order.id %}">PDF рахунок</a>
+  <a class="btn" href="{% url 'b2b:waybill_pdf' order.id %}">PDF накладна</a>
+</p>
+{% endblock %}

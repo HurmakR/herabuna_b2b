@@ -1,0 +1,23 @@
+{% extends "b2b/base.html" %}
+{% block content %}
+<h2>Кошик</h2>
+{% if error %}<p style="color:red">{{ error }}</p>{% endif %}
+{% if order %}
+<table>
+  <tr><th>SKU</th><th>Назва</th><th>К-сть</th><th>Ціна</th><th>Сума</th></tr>
+  {% for i in order.items.all %}
+  <tr>
+    <td>{{ i.product.sku }}</td>
+    <td>{{ i.product.name }}</td>
+    <td class="right">{{ i.qty }}</td>
+    <td class="right">{{ i.price }}</td>
+    <td class="right">{{ i.line_total }}</td>
+  </tr>
+  {% endfor %}
+  <tr><td colspan="4" class="right"><strong>Разом:</strong></td><td class="right"><strong>{{ order.total }}</strong></td></tr>
+</table>
+<a class="btn" href="{% url 'b2b:submit_order' %}">Надіслати замовлення</a>
+{% else %}
+<p>Кошик порожній.</p>
+{% endif %}
+{% endblock %}
