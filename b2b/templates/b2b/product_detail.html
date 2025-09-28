@@ -1,0 +1,63 @@
+{% extends "b2b/base.html" %}
+{% block content %}
+<h2>{{ product.name }}</h2>
+{% if error %}<p style="color:red">{{ error }}</p>{% endif %}
+<p>SKU: {{ product.sku }}</p>
+{% if product.main_image_url %}
+  <img src="{{ product.main_image_url }}" alt="" style="max-height:240px">
+{% endif %}
+<p>{{ product.short_description|safe }}</p>
+
+<form method="post" action="{% url 'b2b:add_to_cart_with_attrs' product.id %}">
+  {% csrf_token %}
+
+  {% for name, options in variant_options.items %}
+    <div style="margin:6px 0">
+      <label><strong>{{ name }}</strong></label><br>
+      <select name="attrs[{{ name }}]">
+        <option value="">-- Обрати --</option>
+        {% for opt in options %}
+          <option value="{{ opt }}">{{ opt }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  {% endfor %}
+
+  <div style="margin:8px 0;display:flex;gap:6px;align-items:center;">
+    <label>Кількість:</label>
+    <div class="qtybox" style="display:flex;align-items:center;border:1px solid #ccc;border-radius:6px;overflow:hidden;">
+      <button type="button" id="qminus" style="padding:6px 10px;border:none;background:#eee">−</button>
+      <input type="number" name="qty" id="qty" value="1" min="1" style="width:56px;text-align:center;border:none">
+      <button type="button" id="qplus" style="padding:6px 10px;border:none;background:#eee">+</button>
+    </div>
+  </div>
+
+  {% if variant_options|length == 0 %}
+    <p><em>Варіації відсутні — буде додано простий товар.</em></p>
+  {% endif %}
+
+  {% if not request.user.is_staff %}
+    <button class="btn" type="submit">Додати до кошика</button>
+  {% else %}
+    <p style="color:#666"><em>Адмін перегляд — додавання недоступне.</em></p>
+  {% endif %}
+  <a class="btn" href="{% url 'b2b:product_list' %}">Назад</a>
+</form>
+
+{% if product.gallery %}
+  <h3>Галерея</h3>
+  {% for url in product.gallery %}
+    <img src="{{ url }}" alt="" style="height:80px;margin-right:6px">
+  {% endfor %}
+{% endif %}
+
+<script>
+const qm = document.getElementById('qminus');
+const qp = document.getElementById('qplus');
+const qi = document.getElementById('qty');
+if (qm && qp && qi) {
+  qm.addEventListener('click', ()=>{ qi.value = Math.max(1, parseInt(qi.value||'1',10)-1); });
+  qp.addEventListener('click', ()=>{ qi.value = Math.max(1, parseInt(qi.value||'1',10)+1); });
+}
+</script>
+{% endblock %}

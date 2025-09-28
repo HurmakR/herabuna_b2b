@@ -1,22 +1,76 @@
 {% extends "b2b/base.html" %}
 {% block content %}
 <h2>Каталог</h2>
-<form method="get">
-  <input type="text" name="q" value="{{ q }}" placeholder="Пошук за назвою або SKU">
+
+{% if request.user.is_staff %}
+  <p><a class="btn" href="{% url 'b2b:orders_admin' %}">Управління замовленнями</a></p>
+{% endif %}
+
+<form method="get" style="margin-bottom:12px;">
+  <input type="text" name="q" value="{{ q }}" placeholder="Пошук за назвою або SKU" style="min-width:280px">
   <button class="btn" type="submit">Пошук</button>
 </form>
+
 <table>
-  <tr><th>SKU</th><th>Назва</th><th>Ціна гурт, грн</th><th>Наявність</th><th></th></tr>
+  <tr><th>Фото</th><th>SKU</th><th>Назва</th><th>Ціна гурт, грн</th><th>Наявність</th><th></th></tr>
   {% for p in products %}
   <tr>
+    <td style="width:110px;">
+      {% if p.main_image_url %}
+        <a href="{% url 'b2b:product_detail' p.id %}"><img src="{{ p.main_image_url }}" alt="" style="height:100px;object-fit:contain"></a>
+      {% endif %}
+    </td>
     <td>{{ p.sku }}</td>
-    <td>{{ p.name }}</td>
+    <td>
+      <a href="{% url 'b2b:product_detail' p.id %}">{{ p.name }}</a>
+      {% if p.categories.all %}
+        <div style="font-size:12px;color:#666">
+          {% for c in p.categories.all %} {{ c.name }}{% if not forloop.last %},{% endif %}{% endfor %}
+        </div>
+      {% endif %}
+    </td>
     <td class="right">{{ p.wholesale_price }}</td>
     <td class="right">{{ p.stock_qty }}</td>
-    <td><a class="btn" href="{% url 'b2b:add_to_cart' p.id %}">Додати</a></td>
+    <td>
+      {% if request.user.is_staff %}
+        <span style="color:#666">Адмін перегляд</span>
+      {% else %}
+        {% if p.variants.all %}
+          <a class="btn" href="{% url 'b2b:product_detail' p.id %}">Обрати опції</a>
+        {% else %}
+          <form method="post" action="{% url 'b2b:add_to_cart' p.id %}" class="qtyform" style="display:flex;gap:6px;align-items:center;">
+            {% csrf_token %}
+            <div class="qtybox" style="display:flex;align-items:center;border:1px solid #ccc;border-radius:6px;overflow:hidden;">
+              <button type="button" class="qminus" style="padding:6px 10px;border:none;background:#eee">−</button>
+              <input type="number" name="qty" value="1" min="1" style="width:56px;text-align:center;border:none">
+              <button type="button" class="qplus" style="padding:6px 10px;border:none;background:#eee">+</button>
+            </div>
+            <button class="btn" type="submit">Додати</button>
+          </form>
+        {% endif %}
+      {% endif %}
+    </td>
   </tr>
   {% empty %}
-  <tr><td colspan="5">Нічого не знайдено.</td></tr>
+  <tr><td colspan="6">Нічого не знайдено.</td></tr>
   {% endfor %}
 </table>
+
+<script>
+document.querySelectorAll('.qtyform').forEach(function(form) {
+  const minus = form.querySelector('.qminus');
+  const plus = form.querySelector('.qplus');
+  const input = form.querySelector('input[name="qty"]');
+  if (minus && plus && input) {
+    minus.addEventListener('click', function() {
+      const v = Math.max(1, parseInt(input.value || '1', 10) - 1);
+      input.value = v;
+    });
+    plus.addEventListener('click', function() {
+      const v = Math.max(1, parseInt(input.value || '1', 10) + 1);
+      input.value = v;
+    });
+  }
+});
+</script>
 {% endblock %}

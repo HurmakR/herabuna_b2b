@@ -6,8 +6,18 @@
   <tr><th>SKU</th><th>Назва</th><th>К-сть</th><th>Ціна</th><th>Сума</th></tr>
   {% for i in order.items.all %}
   <tr>
-    <td>{{ i.product.sku }}</td>
-    <td>{{ i.product.name }}</td>
+    <td>
+      {{ i.product.sku }}
+      {% if i.variant and i.variant.sku %}<div style="font-size:12px;color:#666">({{ i.variant.sku }})</div>{% endif %}
+    </td>
+    <td>
+      {{ i.product.name }}
+      {% if i.variant_attrs %}
+        <div style="font-size:12px;color:#555">
+          {% for k, v in i.variant_attrs.items %} {{ k }}: {{ v }}{% if not forloop.last %}; {% endif %}{% endfor %}
+        </div>
+      {% endif %}
+    </td>
     <td class="right">{{ i.qty }}</td>
     <td class="right">{{ i.price }}</td>
     <td class="right">{{ i.line_total }}</td>

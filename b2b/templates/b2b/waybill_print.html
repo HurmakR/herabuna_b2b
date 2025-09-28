@@ -1,18 +1,49 @@
-{% extends "b2b/base.html" %}
-{% block content %}
-<h2>Видаткова накладна № {{ order.id }} від {{ order.created_at|date:"d.m.Y" }}</h2>
-<p><strong>Постачальник:</strong> Росан-Сервіс / iCare (herabuna.com.ua)</p>
-<p><strong>Отримувач:</strong> {{ order.dealer.company_name }} ({{ order.dealer.username }})</p>
-<table>
-  <tr><th>SKU</th><th>Назва</th><th>К-сть</th></tr>
-  {% for i in order.items.all %}
-  <tr>
-    <td>{{ i.product.sku }}</td>
-    <td>{{ i.product.name }}</td>
-    <td class="right">{{ i.qty }}</td>
-  </tr>
-  {% endfor %}
-</table>
-<p style="margin-top:20px">Відпустив _________ / Отримав _________</p>
-<p><button class="btn" onclick="window.print()">Друк</button></p>
-{% endblock %}
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Видаткова накладна № {{ order.id }}</title>
+  {% load static %}
+  <style>
+    body { font-family: DejaVu Sans, Arial, sans-serif; font-size: 12px; }
+    table { width:100%; border-collapse: collapse; }
+    th, td { border:1px solid #999; padding:6px; vertical-align: top; }
+    .right { text-align: right; }
+    .noborder td, .noborder th { border: none; }
+  </style>
+</head>
+<body>
+  <table class="noborder">
+    <tr>
+      <td><img src="{% static 'b2b/logo.png' %}" alt="logo" style="height:48px"></td>
+      <td class="right"><strong>Видаткова накладна № {{ order.id }}</strong><br>Дата: {{ order.created_at|date:"d.m.Y" }}</td>
+    </tr>
+  </table>
+
+  <h3>Позиції</h3>
+  <table>
+    <tr><th>Фото</th><th>SKU</th><th>Назва</th><th>К-сть</th></tr>
+    {% for i in order.items.all %}
+    <tr>
+      <td style="width:80px">
+        {% if i.variant and i.variant.image_url %}
+          <img src="{{ i.variant.image_url }}" alt="" style="height:64px;object-fit:contain">
+        {% elif i.product.main_image_url %}
+          <img src="{{ i.product.main_image_url }}" alt="" style="height:64px;object-fit:contain">
+        {% endif %}
+      </td>
+      <td>{{ i.product.sku }}{% if i.variant and i.variant.sku %}<div style="font-size:11px;color:#666">({{ i.variant.sku }})</div>{% endif %}</td>
+      <td>
+        {{ i.product.name }}
+        {% if i.variant_attrs %}
+          <div style="font-size:11px;color:#555">
+            {% for k, v in i.variant_attrs.items %} {{ k }}: {{ v }}{% if not forloop.last %}; {% endif %}{% endfor %}
+          </div>
+        {% endif %}
+      </td>
+      <td class="right">{{ i.qty }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</body>
+</html>
