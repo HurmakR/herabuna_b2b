@@ -1,8 +1,7 @@
 {% extends "b2b/base.html" %}
 {% block content %}
-<h2>Кошик</h2>
-{% if error %}<p style="color:red">{{ error }}</p>{% endif %}
-{% if order %}
+<h2>Замовлення № {{ order.id }}</h2>
+<p>Статус: <strong>{{ order.get_status_display }}</strong></p>
 <table>
   <tr><th>SKU</th><th>Назва</th><th>К-сть</th><th>Ціна</th><th>Сума</th></tr>
   {% for i in order.items.all %}
@@ -12,7 +11,7 @@
       {% if i.variant and i.variant.sku %}<div style="font-size:12px;color:#666">({{ i.variant.sku }})</div>{% endif %}
     </td>
     <td>
-      {{ i.product.name }}
+      {% if i.variant %}{{ i.variant.name_with_weight }}{% else %}{{ i.product.name_with_weight }}{% endif %}
       {% if i.variant_attrs %}
         <div style="font-size:12px;color:#555">
           {% for k, v in i.variant_attrs.items %} {{ k }}: {{ v }}{% if not forloop.last %}; {% endif %}{% endfor %}
@@ -26,8 +25,18 @@
   {% endfor %}
   <tr><td colspan="4" class="right"><strong>Разом:</strong></td><td class="right"><strong>{{ order.total }}</strong></td></tr>
 </table>
-<a class="btn" href="{% url 'b2b:submit_order' %}">Надіслати замовлення</a>
-{% else %}
-<p>Кошик порожній.</p>
+
+<p style="margin-top:10px;">
+  <a class="btn" href="{% url 'b2b:invoice_print' order.id %}">Друк рахунку (HTML)</a>
+  <a class="btn" href="{% url 'b2b:waybill_print' order.id %}">Друк накладної (HTML)</a>
+  <a class="btn" href="{% url 'b2b:invoice_pdf' order.id %}">PDF рахунок</a>
+  <a class="btn" href="{% url 'b2b:waybill_pdf' order.id %}">PDF накладна</a>
+</p>
+
+{% if not request.user.is_staff and order.status in 'draft submitted cancelled' %}
+<form method="post" action="{% url 'b2b:order_delete' order.id %}" onsubmit="return confirm('Видалити це замовлення?');">
+  {% csrf_token %}
+  <button class="btn" type="submit">Видалити замовлення</button>
+</form>
 {% endif %}
 {% endblock %}

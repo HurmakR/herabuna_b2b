@@ -34,7 +34,7 @@ class Category(models.Model):
 
 
 class Brand(models.Model):
-    """Brand as a dedicated entity for filtering."""
+    """Brand as a dedicated entity for filtering and display."""
     name = models.CharField(max_length=255, unique=True)
     slug = models.SlugField(max_length=255, blank=True)
     woo_id = models.BigIntegerField(null=True, blank=True, unique=True)
@@ -79,7 +79,7 @@ class Product(models.Model):
     # Descriptive fields
     short_description = models.TextField(blank=True)
     description = models.TextField(blank=True)
-    weight_g = models.PositiveIntegerField(default=0)
+    weight_g = models.PositiveIntegerField(default=0)  # stored in grams
     main_image_url = models.URLField(blank=True)
     gallery = models.JSONField(default=list, blank=True)        # list of image URLs
     attributes = models.JSONField(default=dict, blank=True)     # informational attributes (not options)
@@ -89,6 +89,25 @@ class Product(models.Model):
 
     def __str__(self) -> str:
         return f"{self.sku} — {self.name}"
+
+    @staticmethod
+    def _format_weight(weight_g: int) -> str:
+        """Return a localized human-readable weight label."""
+        if not weight_g:
+            return ""
+        if weight_g >= 1000:
+            kg = weight_g / 1000.0
+            # Trim trailing zeros (e.g., 2.0 -> 2)
+            kg_str = f"{kg:.2f}".rstrip("0").rstrip(".")
+            return f"{kg_str} кг"
+        return f"{weight_g} г"
+
+    @property
+    def name_with_weight(self) -> str:
+        """Return name with weight suffix appended after comma if weight exists."""
+        if self.weight_g:
+            return f"{self.name}, {self._format_weight(self.weight_g)}"
+        return self.name
 
 
 class ProductCategory(models.Model):
@@ -123,9 +142,19 @@ class ProductVariant(models.Model):
     stock_qty = models.IntegerField(default=0)
     is_active = models.BooleanField(default=True)
     image_url = models.URLField(blank=True)
+    weight_g = models.PositiveIntegerField(default=0)  # variant-specific weight if provided by Woo
 
     def __str__(self) -> str:
         return f"{self.product.sku} / {self.sku or self.woo_variation_id}"
+
+    @property
+    def name_with_weight(self) -> str:
+        """Return product name, optionally suffixed with variant weight."""
+        weight = self.weight_g or 0
+        if weight:
+            return f"{self.product.name}, {Product._format_weight(weight)}"
+        # fallback to product-level weight if variant has none
+        return self.product.name_with_weight
 
 
 class Order(models.Model):

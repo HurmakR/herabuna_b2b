@@ -1,6 +1,6 @@
 {% extends "b2b/base.html" %}
 {% block content %}
-<h2>{{ product.name }}</h2>
+<h2>{{ product.name_with_weight }}</h2>
 {% if error %}<p style="color:red">{{ error }}</p>{% endif %}
 <p>SKU: {{ product.sku }}</p>
 {% if product.main_image_url %}
@@ -32,14 +32,14 @@
     </div>
   </div>
 
-  {% if variant_options|length == 0 %}
-    <p><em>Варіації відсутні — буде додано простий товар.</em></p>
-  {% endif %}
-
-  {% if not request.user.is_staff %}
-    <button class="btn" type="submit">Додати до кошика</button>
+  {% if variant_options|length == 0 and product.stock_qty|default:0 <= 0 %}
+    <p style="color:#888"><em>Немає в наявності.</em></p>
   {% else %}
-    <p style="color:#666"><em>Адмін перегляд — додавання недоступне.</em></p>
+    {% if not request.user.is_staff %}
+      <button class="btn" type="submit">Додати до кошика</button>
+    {% else %}
+      <p style="color:#666"><em>Адмін перегляд — додавання недоступне.</em></p>
+    {% endif %}
   {% endif %}
   <a class="btn" href="{% url 'b2b:product_list' %}">Назад</a>
 </form>

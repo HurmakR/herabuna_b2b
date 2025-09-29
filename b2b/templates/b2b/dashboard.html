@@ -1,20 +1,26 @@
 {% extends "b2b/base.html" %}
 {% block content %}
-<h2>Ваші останні замовлення</h2>
-{% if orders %}
+<h2>Мої останні замовлення</h2>
 <table>
   <tr><th>ID</th><th>Статус</th><th>Сума</th><th>Створено</th><th></th></tr>
   {% for o in orders %}
-    <tr>
-      <td>{{ o.id }}</td>
-      <td>{{ o.get_status_display }}</td>
-      <td class="right">{{ o.total }}</td>
-      <td>{{ o.created_at }}</td>
-      <td><a class="btn" href="{% url 'b2b:order_detail' o.id %}">Деталі</a></td>
-    </tr>
+  <tr>
+    <td><a href="{% url 'b2b:order_detail' o.id %}">#{{ o.id }}</a></td>
+    <td>{{ o.get_status_display }}</td>
+    <td class="right">{{ o.total }}</td>
+    <td>{{ o.created_at|date:"d.m.Y H:i" }}</td>
+    <td>
+      {% if o.status in 'draft submitted cancelled' %}
+        <form method="post" action="{% url 'b2b:order_delete' o.id %}" style="display:inline" onsubmit="return confirm('Видалити замовлення #{{ o.id }}?');">
+          {% csrf_token %}
+          <button class="btn" type="submit">Видалити</button>
+        </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% empty %}
+  <tr><td colspan="5">Немає замовлень</td></tr>
   {% endfor %}
 </table>
-{% else %}
-<p>Замовлень поки немає.</p>
-{% endif %}
 {% endblock %}
+

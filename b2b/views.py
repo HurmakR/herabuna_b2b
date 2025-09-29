@@ -1,8 +1,10 @@
-from django.contrib.auth.decorators import login_required, user_passes_test
+from decimal import Decimal
 from django.contrib.auth import login, logout
+from django.contrib.auth.decorators import login_required, user_passes_test
 from django.db import transaction
-from django.shortcuts import render, redirect, get_object_or_404
+from django.db.models import Q
 from django.http import HttpResponse, HttpResponseForbidden
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
 
 try:
@@ -11,8 +13,8 @@ try:
 except Exception:
     WEASYPRINT_AVAILABLE = False
 
-from .models import Product, Order, OrderItem, ProductVariant
 from .forms import DealerSignUpForm
+from .models import Brand, Category, Order, OrderItem, Product, ProductVariant
 from .services import woo_sync
 
 
@@ -33,18 +35,42 @@ def signup(request):
 
 @login_required
 def dashboard(request):
-    # Dealers see their recent orders; staff can jump to admin orders view
-    qs = request.user.order_set.order_by("-created_at")[:10]
+    qs = request.user.order_set.order_by("-created_at")[:20]
     return render(request, "b2b/dashboard.html", {"orders": qs})
 
 
 @login_required
 def product_list(request):
-    q = request.GET.get("q", "")
-    products = Product.objects.filter(is_active=True)
+    """
+    Catalog with search + filters (category, brand).
+    Dealers can add to cart; staff can edit price/stock inline.
+    """
+    q = request.GET.get("q", "").strip()
+    cat = request.GET.get("cat")
+    brand = request.GET.get("brand")
+
+    products = Product.objects.all() if request.user.is_staff else Product.objects.filter(is_active=True)
+
     if q:
-        products = products.filter(name__icontains=q) | products.filter(sku__icontains=q)
-    return render(request, "b2b/product_list.html", {"products": products, "q": q})
+        products = products.filter(Q(name__icontains=q) | Q(sku__icontains=q))
+    if cat and cat.isdigit():
+        products = products.filter(categories__id=int(cat))
+    if brand and brand.isdigit():
+        products = products.filter(brand_id=int(brand))
+
+    products = products.distinct().order_by("name")
+    categories = Category.objects.order_by("name")
+    brands = Brand.objects.order_by("name")
+
+    ctx = {
+        "products": products,
+        "q": q,
+        "categories": categories,
+        "brands": brands,
+        "selected_cat": int(cat) if (cat and cat.isdigit()) else None,
+        "selected_brand": int(brand) if (brand and brand.isdigit()) else None,
+    }
+    return render(request, "b2b/product_list.html", ctx)
 
 
 @login_required
@@ -59,35 +85,48 @@ def product_detail(request, product_id: int):
             variant_options.setdefault(k, set()).add(val)
     variant_options = {k: sorted(list(vals)) for k, vals in variant_options.items()}
 
-    return render(
-        request,
-        "b2b/product_detail.html",
-        {"product": p, "variant_options": variant_options},
-    )
+    return render(request, "b2b/product_detail.html", {"product": p, "variant_options": variant_options})
 
 
 @login_required
 @transaction.atomic
 def add_to_cart(request, product_id):
-    """Add simple product (no variants) with optional qty."""
+    """
+    Add simple product (no variants) with optional qty.
+    Enforces stock: item quantity cannot exceed available stock.
+    """
     product = get_object_or_404(Product, id=product_id, is_active=True)
-    # Accept qty from POST (preferred) or fallback to GET
+    available = max(0, int(product.stock_qty))
+
+    # If no stock, do nothing and return to catalog
+    if available <= 0:
+        return redirect("b2b:product_list")
+
     qty_raw = request.POST.get("qty") or request.GET.get("qty") or "1"
     try:
-        qty = max(1, int(qty_raw))
+        qty_req = max(1, int(qty_raw))
     except Exception:
-        qty = 1
+        qty_req = 1
 
     order, _ = Order.objects.get_or_create(dealer=request.user, status="draft")
     item, created = OrderItem.objects.get_or_create(
         order=order,
         product=product,
         variant=None,
-        defaults={"qty": qty, "price": product.wholesale_price, "variant_attrs": {}},
+        defaults={"qty": 0, "price": product.wholesale_price, "variant_attrs": {}},
     )
-    if not created:
-        item.qty += qty
-        item.save(update_fields=["qty"])
+
+    # Compute allowed addition respecting available stock
+    current = int(item.qty or 0)
+    to_add = min(qty_req, available - current)
+    if to_add <= 0:
+        # Nothing can be added; show cart with an error
+        error = f"Максимально доступно для {product.sku}: {available}."
+        order.refresh_from_db()
+        return render(request, "b2b/cart.html", {"order": order, "error": error})
+
+    item.qty = current + to_add
+    item.save(update_fields=["qty"])
     order.recalc()
     return redirect("b2b:cart")
 
@@ -98,16 +137,16 @@ def add_to_cart(request, product_id):
 def add_to_cart_with_attrs(request, product_id: int):
     """
     Resolve a concrete variant by exact attribute set and add to cart with qty.
-    Attributes are read from POST keys: attrs[Length]=5.4 etc.
+    Enforces stock for the matched variant (or product if no variants exist).
     """
     product = get_object_or_404(Product, id=product_id, is_active=True)
     order, _ = Order.objects.get_or_create(dealer=request.user, status="draft")
 
-    # qty
+    # qty request
     try:
-        qty = max(1, int(request.POST.get("qty", "1")))
+        qty_req = max(1, int(request.POST.get("qty", "1")))
     except Exception:
-        qty = 1
+        qty_req = 1
 
     # attributes
     selected = {}
@@ -116,13 +155,15 @@ def add_to_cart_with_attrs(request, product_id: int):
             selected[k[6:-1]] = v
 
     variant = None
+    available = max(0, int(product.stock_qty))
     if product.variants.exists():
+        # Find exact variant by attributes
         for v in product.variants.filter(is_active=True):
             if (v.attributes or {}) == selected:
                 variant = v
                 break
         if not variant:
-            # Re-render detail with an error
+            # Rebuild options and return with error
             variant_options = {}
             for vv in product.variants.filter(is_active=True):
                 for kk, val in (vv.attributes or {}).items():
@@ -133,17 +174,45 @@ def add_to_cart_with_attrs(request, product_id: int):
                 "b2b/product_detail.html",
                 {"product": product, "variant_options": variant_options, "error": "Комбінацію не знайдено. Оберіть доступні значення."},
             )
+        available = max(0, int(variant.stock_qty))
 
-    price = variant.wholesale_price if variant else product.wholesale_price
-    item, created = OrderItem.objects.get_or_create(
+    # If no stock, return to detail with error
+    if available <= 0:
+        variant_options = {}
+        for vv in product.variants.filter(is_active=True):
+            for kk, val in (vv.attributes or {}).items():
+                variant_options.setdefault(kk, set()).add(val)
+        variant_options = {kk: sorted(list(vals)) for kk, vals in variant_options.items()}
+        return render(
+            request,
+            "b2b/product_detail.html",
+            {
+                "product": product,
+                "variant_options": variant_options,
+                "error": "Немає в наявності для обраної комбінації." if variant else "Немає в наявності.",
+            },
+        )
+
+    price = (variant.wholesale_price if variant else product.wholesale_price)
+    item, _ = OrderItem.objects.get_or_create(
         order=order,
         product=product,
         variant=variant,
-        defaults={"qty": qty, "price": price, "variant_attrs": selected},
+        defaults={"qty": 0, "price": price, "variant_attrs": selected},
     )
-    if not created:
-        item.qty += qty
-        item.save(update_fields=["qty"])
+    # Ensure price is in sync when first created
+    if item.price != price and item.qty == 0:
+        item.price = price
+
+    current = int(item.qty or 0)
+    to_add = min(qty_req, available - current)
+    if to_add <= 0:
+        error = f"Максимально доступно: {available}."
+        order.refresh_from_db()
+        return render(request, "b2b/cart.html", {"order": order, "error": error})
+
+    item.qty = current + to_add
+    item.save(update_fields=["qty", "price"])
     order.recalc()
     return redirect("b2b:cart")
 
@@ -155,6 +224,103 @@ def cart(request):
 
 
 @login_required
+@require_http_methods(["POST"])
+@transaction.atomic
+def cart_update_item(request, item_id: int):
+    """
+    Dealer can edit qty of draft items via +/- or direct set.
+    Enforces stock when increasing or setting quantities.
+    """
+    item = get_object_or_404(OrderItem.objects.select_related("order", "product", "variant"), id=item_id)
+    if item.order.dealer_id != request.user.id or item.order.status != "draft":
+        return HttpResponseForbidden("Forbidden")
+
+    # Determine available stock for this line (variant first, else product)
+    available = max(0, int(item.variant.stock_qty if item.variant else item.product.stock_qty))
+    op = request.POST.get("op")
+    error = None
+
+    if op == "inc":
+        if item.qty >= available:
+            error = f"Максимально доступно: {available}."
+        else:
+            item.qty += 1
+            item.save(update_fields=["qty"])
+    elif op == "dec":
+        item.qty -= 1
+        if item.qty <= 0:
+            item.delete()
+        else:
+            item.save(update_fields=["qty"])
+    else:
+        # Direct set
+        try:
+            q = int(request.POST.get("qty", item.qty))
+        except Exception:
+            q = item.qty
+        q = max(0, min(q, available))
+        if q <= 0:
+            item.delete()
+        else:
+            item.qty = q
+            item.save(update_fields=["qty"])
+        if q < int(request.POST.get("qty", q)):
+            error = f"Максимально доступно: {available}."
+
+    # Recalculate and render
+    order = Order.objects.filter(id=item.order_id).first()
+    if order:
+        order.recalc()
+
+    if error:
+        return render(request, "b2b/cart.html", {"order": order, "error": error})
+    return redirect("b2b:cart")
+
+
+@login_required
+@require_http_methods(["POST"])
+@transaction.atomic
+def cart_remove_item(request, item_id: int):
+    """Remove an item from a draft order."""
+    item = get_object_or_404(OrderItem.objects.select_related("order"), id=item_id)
+    if item.order.dealer_id != request.user.id or item.order.status != "draft":
+        return HttpResponseForbidden("Forbidden")
+    order = item.order
+    item.delete()
+    order.recalc()
+    return redirect("b2b:cart")
+
+
+@login_required
+@require_http_methods(["POST"])
+@transaction.atomic
+def cancel_draft_order(request):
+    """Dealer can cancel (delete) their current draft order."""
+    order = Order.objects.filter(dealer=request.user, status="draft").first()
+    if order:
+        order.delete()
+    return redirect("b2b:product_list")
+
+
+@login_required
+@require_http_methods(["POST"])
+@transaction.atomic
+def order_delete(request, order_id: int):
+    """
+    Dealer can delete their own order.
+    Allowed statuses: draft, submitted, cancelled.
+    Confirmed/fulfilled are not allowed to be deleted.
+    """
+    order = get_object_or_404(Order, id=order_id)
+    if order.dealer_id != request.user.id:
+        return HttpResponseForbidden("Forbidden")
+    if order.status not in {"draft", "submitted", "cancelled"}:
+        return HttpResponse("Неможливо видалити замовлення зі статусом, що обробляється.", status=400)
+    order.delete()
+    return redirect("b2b:dashboard")
+
+
+@login_required
 @transaction.atomic
 def submit_order(request):
     """Submit current draft order, reserve stock locally, and best-effort push to Woo."""
@@ -162,9 +328,9 @@ def submit_order(request):
     if not order or order.items.count() == 0:
         return redirect("b2b:product_list")
 
-    # Availability check
+    # availability check
     for it in order.items.select_related("product", "variant"):
-        available = it.variant.stock_qty if it.variant else it.product.stock_qty
+        available = max(0, int(it.variant.stock_qty if it.variant else it.product.stock_qty))
         if available < it.qty:
             return render(
                 request,
@@ -172,7 +338,7 @@ def submit_order(request):
                 {"order": order, "error": f"Недостатньо на складі для {it.product.sku}. Доступно: {available}"},
             )
 
-    # Reserve locally
+    # reserve locally
     for it in order.items.select_related("product", "variant"):
         if it.variant:
             it.variant.stock_qty -= it.qty
@@ -185,7 +351,6 @@ def submit_order(request):
     order.recalc()
     order.save(update_fields=["status", "subtotal", "total"])
 
-    # Best-effort push to Woo
     client = woo_sync.WooClient()
     for it in order.items.select_related("product", "variant"):
         try:
@@ -194,6 +359,7 @@ def submit_order(request):
             elif it.product.woo_id:
                 client.update_stock(it.product.woo_id, it.product.stock_qty)
         except Exception:
+            # Ignore network errors; admin can resync
             pass
 
     return redirect("b2b:order_detail", order_id=order.id)
@@ -201,20 +367,17 @@ def submit_order(request):
 
 @login_required
 def order_detail(request, order_id):
-    """Dealers can see their own orders; staff can see any order."""
     order = get_object_or_404(Order, id=order_id)
     if not (request.user.is_staff or order.dealer_id == request.user.id):
         return HttpResponseForbidden("Forbidden")
     return render(request, "b2b/order_detail.html", {"order": order})
 
 
-# ---- Staff views for managing all orders ----
-
+# ---- Staff views ----
 def _is_staff(u): return u.is_staff
 
 @user_passes_test(_is_staff)
 def orders_admin(request):
-    """Staff-only: see and manage all dealer orders."""
     status = request.GET.get("status")
     qs = Order.objects.all().order_by("-created_at")
     if status:
@@ -223,8 +386,25 @@ def orders_admin(request):
 
 
 @user_passes_test(_is_staff)
+@require_http_methods(["POST"])
+def product_update_inline(request, product_id: int):
+    """Staff inline update for price/stock/active from catalog list."""
+    p = get_object_or_404(Product, id=product_id)
+    try:
+        p.wholesale_price = Decimal(request.POST.get("wholesale_price", p.wholesale_price))
+    except Exception:
+        pass
+    try:
+        p.stock_qty = int(request.POST.get("stock_qty", p.stock_qty))
+    except Exception:
+        pass
+    p.is_active = bool(request.POST.get("is_active"))
+    p.save(update_fields=["wholesale_price", "stock_qty", "is_active"])
+    return redirect("b2b:product_list")
+
+
+@user_passes_test(_is_staff)
 def order_set_status(request, order_id, status):
-    """Staff-only: update order status quickly from list."""
     order = get_object_or_404(Order, id=order_id)
     valid = {"draft", "submitted", "confirmed", "fulfilled", "cancelled"}
     if status not in valid:
@@ -234,7 +414,6 @@ def order_set_status(request, order_id, status):
     return redirect("b2b:orders_admin")
 
 
-# Optional logout helper (POST recommended)
 @require_http_methods(["POST", "GET"])
 def logout_view(request):
     logout(request)
