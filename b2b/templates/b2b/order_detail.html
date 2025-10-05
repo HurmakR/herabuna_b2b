@@ -2,10 +2,16 @@
 {% block content %}
 <h2>Замовлення № {{ order.id }}</h2>
 <p>Статус: <strong>{{ order.get_status_display }}</strong></p>
+
 <table>
-  <tr><th>SKU</th><th>Назва</th><th>К-сть</th><th>Ціна</th><th>Сума</th></tr>
+  <tr><th>Фото</th><th>SKU</th><th>Назва</th><th>К-сть</th><th>Ціна</th><th>Сума</th></tr>
   {% for i in order.items.all %}
   <tr>
+    <td style="width:90px;">
+      {% with img=i.variant.image_url|default:i.product.main_image_url %}
+        {% if img %}<img src="{{ img }}" alt="" style="height:70px;object-fit:contain">{% endif %}
+      {% endwith %}
+    </td>
     <td>
       {{ i.product.sku }}
       {% if i.variant and i.variant.sku %}<div style="font-size:12px;color:#666">({{ i.variant.sku }})</div>{% endif %}
@@ -23,13 +29,23 @@
     <td class="right">{{ i.line_total }}</td>
   </tr>
   {% endfor %}
-  <tr><td colspan="4" class="right"><strong>Разом:</strong></td><td class="right"><strong>{{ order.total }}</strong></td></tr>
+  <tr><td colspan="5" class="right"><strong>Разом:</strong></td><td class="right"><strong>{{ order.total }}</strong></td></tr>
 </table>
 
-<p>
+<p style="margin-top:10px;">
   <a class="btn" href="{% url 'b2b:invoice_print' order.id %}">Друк рахунку (HTML)</a>
   <a class="btn" href="{% url 'b2b:waybill_print' order.id %}">Друк накладної (HTML)</a>
   <a class="btn" href="{% url 'b2b:invoice_pdf' order.id %}">PDF рахунок</a>
   <a class="btn" href="{% url 'b2b:waybill_pdf' order.id %}">PDF накладна</a>
 </p>
+
+{# Show delete button only for non-staff and only when status is draft or cancelled #}
+{% if not request.user.is_staff %}
+  {% if order.status == 'draft' or order.status == 'cancelled' %}
+    <form method="post" action="{% url 'b2b:order_delete' order.id %}" onsubmit="return confirm('Видалити це замовлення?');">
+      {% csrf_token %}
+      <button class="btn" type="submit">Видалити замовлення</button>
+    </form>
+  {% endif %}
+{% endif %}
 {% endblock %}

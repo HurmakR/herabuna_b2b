@@ -157,21 +157,29 @@ class ProductVariant(models.Model):
         return self.product.name_with_weight
 
 
+
 class Order(models.Model):
-    """Simple order created by a dealer; totals are recalculated on change."""
+    """Dealer order with a simple lifecycle."""
     STATUS_CHOICES = [
-        ("draft", "Draft"),
-        ("submitted", "Submitted"),
-        ("confirmed", "Confirmed"),
-        ("fulfilled", "Fulfilled"),
-        ("cancelled", "Cancelled"),
+        ("draft", "Чернетка"),
+        ("submitted", "Очікує підтвердження"),
+        ("pending_payment", "Очікує оплату"),
+        ("shipped", "Відправлено"),
+        ("cancelled", "Скасовано"),
     ]
+
     dealer = models.ForeignKey(Dealer, on_delete=models.PROTECT)
     created_at = models.DateTimeField(default=timezone.now)
-    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="draft")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="draft")
+
     subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     note = models.TextField(blank=True)
+
+    # Shipping info (filled on shipment)
+    shipping_provider = models.CharField(max_length=64, blank=True, default="Nova Poshta")
+    shipping_ttn = models.CharField(max_length=64, blank=True)
+    shipped_at = models.DateTimeField(null=True, blank=True)
 
     def recalc(self):
         """Recalculate totals based on items."""

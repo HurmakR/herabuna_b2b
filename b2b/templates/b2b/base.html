@@ -1,35 +1,67 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="uk">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>B2B — Herabuna</title>
+  <meta charset="utf-8">
+  <title>{% block title %}Herabuna B2B{% endblock %}</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    header, nav, main { max-width: 960px; margin: 0 auto; }
-    nav a { margin-right: 12px; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { border: 1px solid #ddd; padding: 8px; }
-    th { background: #f6f6f6; }
-    .right { text-align: right; }
-    .btn { display: inline-block; padding: 6px 12px; border: 1px solid #333; text-decoration: none; margin: 4px 0; }
+    body { font-family: Arial, sans-serif; font-size:14px; margin:0; }
+    .container { width: 100%; max-width: 1100px; margin: 0 auto; padding: 0 12px; }
+    .nav { display:flex; align-items:center; gap:16px; padding:10px 0; border-bottom:1px solid #ddd; }
+    .nav a { text-decoration:none; color:#00c; }
+    .nav-left { display:flex; gap:12px; align-items:center; }
+    .nav-right { margin-left:auto; display:flex; gap:16px; align-items:center; }
+    .badge { display:inline-block; min-width:18px; padding:2px 6px; border-radius:10px; font-size:12px; line-height:1; background:#e33; color:#fff; text-align:center; }
+    .sum { font-size:12px; color:#333; }
+    .username { font-size:13px; color:#555; }
+    .messages { list-style:none; padding:0; margin:10px 0; }
+    .messages li { padding:8px 10px; border:1px solid #ddd; margin-bottom:6px; }
+    .messages li.success { border-color:#2a8; background:#eafff3; }
+    .messages li.warning { border-color:#e6a100; background:#fff6e0; }
+    .messages li.error { border-color:#e33; background:#ffecec; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { border:1px solid #ddd; padding:8px; vertical-align:top; }
+    .right { text-align:right; }
+    .btn { display:inline-block; padding:6px 10px; border:1px solid #333; border-radius:4px; background:#f5f5f5; cursor:pointer; text-decoration:none; }
   </style>
 </head>
 <body>
-<header>
-  <h1>Herabuna B2B</h1>
-  <nav>
-    {% if request.user.is_authenticated %}
-      <a href="{% url 'b2b:dashboard' %}">Головна</a>
-      <a href="{% url 'b2b:product_list' %}">Каталог</a>
-      <a href="{% url 'b2b:cart' %}">Кошик</a>
-      <a href="{% url 'b2b:logout' %}">Вийти</a>
-    {% else %}
-      <a href="{% url 'b2b:login' %}">Вхід</a>
-      <a href="{% url 'b2b:signup' %}">Реєстрація</a>
+  <div class="container">
+    <div class="nav">
+      <div class="nav-left">
+        <a href="{% url 'b2b:product_list' %}">Каталог</a>
+        {% if user.is_authenticated and not user.is_staff %}
+          <a href="{% url 'b2b:dashboard' %}">Замовлення</a>
+        {% endif %}
+      </div>
+      <div class="nav-right">
+        {% if user.is_authenticated and not user.is_staff %}
+          <a href="{% url 'b2b:cart' %}">
+            Кошик
+            {% if cart_qty_sum %}<span class="badge">{{ cart_qty_sum }}</span>{% endif %}
+            {% if cart_total %}<span class="sum">{{ cart_total|floatformat:2 }} грн</span>{% endif %}
+          </a>
+        {% endif %}
+
+        {% if user.is_authenticated %}
+          <span class="username">{{ user.username }}</span>
+          <form method="post" action="{% url 'b2b:logout' %}" style="display:inline;">
+            {% csrf_token %}<button class="btn" type="submit">Вийти</button>
+          </form>
+        {% else %}
+          <a class="btn" href="{% url 'b2b:login' %}">Увійти</a>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if messages %}
+      <ul class="messages">
+        {% for message in messages %}
+          <li class="{{ message.tags }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
     {% endif %}
-  </nav>
-  <hr>
-</header>
-<main>{% block content %}{% endblock %}</main>
+
+    {% block content %}{% endblock %}
+  </div>
 </body>
 </html>
