@@ -33,4 +33,16 @@ urlpatterns = [
     path("orders-admin/", views.orders_admin, name="orders_admin"),
     path("products/<int:product_id>/update/", views.product_update_inline, name="product_update_inline"),
     path("orders/<int:order_id>/set-status/<str:status>/", views.order_set_status, name="order_set_status"),
+    path("orders/<int:order_id>/label.pdf", views.order_np_label, name="order_np_label"),
+    path("profile/", views.profile_view, name="profile"),
+    path("profile/addresses/", views.address_list, name="address_list"),
+    path("profile/addresses/new/", views.address_create, name="address_create"),
+    path("profile/addresses/<int:pk>/edit/", views.address_edit, name="address_edit"),
+    path("profile/addresses/<int:pk>/delete/", views.address_delete, name="address_delete"),
+
+    path("checkout/", views.order_checkout, name="order_checkout"),  # select address page
+    path("checkout/confirm/", views.order_checkout_confirm, name="order_checkout_confirm"),
+
+    path("np/cities/", views.np_cities, name="np_cities"),
+    path("np/warehouses/", views.np_warehouses, name="np_warehouses"),
 ]

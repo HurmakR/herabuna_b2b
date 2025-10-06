@@ -1,0 +1,17 @@
+{% extends "b2b/base.html" %}
+{% block content %}
+<h2>Профіль</h2>
+
+<ul style="display:flex; gap:16px; list-style:none; padding:0; margin:0 0 12px 0;">
+  <li><strong>Облікові дані</strong></li>
+  <li><a href="{% url 'b2b:address_list' %}">Адреси доставки</a></li>
+</ul>
+
+<form method="post">
+  {% csrf_token %}
+  <table>
+    {{ form.as_table }}
+  </table>
+  <button class="btn" type="submit">Зберегти</button>
+</form>
+{% endblock %}

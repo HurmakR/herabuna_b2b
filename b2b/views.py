@@ -10,6 +10,10 @@ from django.http import HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
+from django.http import JsonResponse
+from django.views.decorators.http import require_GET
+from .services import np_client
+
 
 try:
     from weasyprint import HTML
@@ -17,10 +21,10 @@ try:
 except Exception:
     WEASYPRINT_AVAILABLE = False
 
-from .forms import DealerSignUpForm
-from .models import Brand, Category, Order, OrderItem, Product, ProductVariant
-from .services import woo_sync
-from .services import np_api
+from django.forms import modelform_factory
+from .forms import DealerSignUpForm, ProfileForm, AddressForm
+from .models import Brand, Category, Order, OrderItem, Product, ProductVariant, Address
+from .services import woo_sync, np_api, telegram as tg
 
 
 def _safe_next_url(request, default_name="b2b:product_list"):
@@ -52,6 +56,68 @@ def dashboard(request):
     # Show only non-draft orders; draft is the cart.
     qs = request.user.order_set.exclude(status="draft").order_by("-created_at")[:20]
     return render(request, "b2b/dashboard.html", {"orders": qs})
+
+# ---------- PROFILE ----------
+@login_required
+def profile_view(request):
+    """Dealer profile with two tabs: profile form and addresses link."""
+    form = ProfileForm(instance=request.user)
+    if request.method == "POST":
+        form = ProfileForm(request.POST, instance=request.user)
+        if form.is_valid():
+            # Ensure only one default address across user's addresses if changed elsewhere.
+            form.save()
+            messages.success(request, "Профіль збережено.")
+            return redirect("b2b:profile")
+    return render(request, "b2b/profile.html", {"form": form})
+
+@login_required
+def address_list(request):
+    """List and manage addresses; links to create/edit/delete."""
+    addrs = Address.objects.filter(dealer=request.user).order_by("-is_default", "-created_at")
+    return render(request, "b2b/address_list.html", {"addresses": addrs})
+
+@login_required
+def address_create(request):
+    """Create a new NP address."""
+    form = AddressForm()
+    if request.method == "POST":
+        form = AddressForm(request.POST)
+        if form.is_valid():
+            addr = form.save(commit=False)
+            addr.dealer = request.user
+            # Keep only one default
+            if addr.is_default:
+                Address.objects.filter(dealer=request.user, is_default=True).update(is_default=False)
+            addr.save()
+            messages.success(request, "Адресу додано.")
+            return redirect("b2b:address_list")
+    return render(request, "b2b/address_form.html", {"form": form, "is_edit": False})
+
+@login_required
+def address_edit(request, pk: int):
+    """Edit an NP address."""
+    addr = get_object_or_404(Address, pk=pk, dealer=request.user)
+    form = AddressForm(instance=addr)
+    if request.method == "POST":
+        form = AddressForm(request.POST, instance=addr)
+        if form.is_valid():
+            addr = form.save(commit=False)
+            if addr.is_default:
+                Address.objects.filter(dealer=request.user, is_default=True).exclude(pk=addr.pk).update(is_default=False)
+            addr.save()
+            messages.success(request, "Адресу збережено.")
+            return redirect("b2b:address_list")
+    return render(request, "b2b/address_form.html", {"form": form, "is_edit": True})
+
+@login_required
+@require_http_methods(["POST"])
+def address_delete(request, pk: int):
+    """Delete an NP address."""
+    addr = get_object_or_404(Address, pk=pk, dealer=request.user)
+    addr.delete()
+    messages.info(request, "Адресу видалено.")
+    return redirect("b2b:address_list")
 
 
 @login_required
@@ -381,7 +447,13 @@ def order_admin_action(request, order_id: int, action: str):
                 msg.send(fail_silently=True)
         except Exception:
             pass
-
+        # inside action == "confirm" after sending email
+        try:
+            if getattr(order.dealer, "telegram_chat_id", None):
+                tg.send_message(order.dealer.telegram_chat_id,
+                                f"Ваше замовлення #{order.id} підтверджено. Очікує оплату.")
+        except Exception:
+            pass
         messages.success(request, f"Замовлення #{order.id} підтверджено. Статус: очікує оплату.")
         return redirect("b2b:orders_admin")
 
@@ -420,15 +492,16 @@ def order_admin_action(request, order_id: int, action: str):
 
         # Create TTN (stub)
         try:
-            ttn = np_api.create_ttn(order)
+            ttn, doc_ref = np_api.create_ttn(order)
         except Exception as e:
             messages.error(request, f"Помилка створення ТТН: {e}")
             return redirect("b2b:orders_admin")
 
         order.shipping_ttn = ttn
+        order.shipping_np_ref = doc_ref or ""
         order.shipped_at = timezone.now()
         order.status = "shipped"
-        order.save(update_fields=["shipping_ttn", "shipped_at", "status"])
+        order.save(update_fields=["shipping_ttn", "shipping_np_ref", "shipped_at", "status"])
 
         # Notify customer about shipment
         try:
@@ -528,3 +601,145 @@ def waybill_pdf(request, order_id):
     if not (request.user.is_staff or order.dealer_id == request.user.id):
         return HttpResponseForbidden("Forbidden")
     return _render_pdf_from_template(request, "b2b/waybill_print.html", {"order": order}, "waybill")
+
+# ---------- CHECKOUT (address selection) ----------
+@login_required
+def order_checkout(request):
+    """
+    Step between cart and submit: choose delivery address.
+    Button label in cart becomes 'Підтвердити' (goes here).
+    """
+    order = Order.objects.filter(dealer=request.user, status="draft").first()
+    addrs = Address.objects.filter(dealer=request.user).order_by("-is_default", "title")
+    if not order or order.items.count() == 0:
+        messages.info(request, "Кошик порожній.")
+        return redirect("b2b:product_list")
+    if not addrs:
+        messages.warning(request, "Додайте адресу доставки у профілі.")
+        return redirect("b2b:address_list")
+    return render(request, "b2b/checkout_select_address.html", {"order": order, "addresses": addrs})
+
+@login_required
+@require_http_methods(["POST"])
+@transaction.atomic
+def order_checkout_confirm(request):
+    """
+    Confirm address and submit the order:
+    - validate stock
+    - reserve stock
+    - set status submitted
+    - attach shipping_address
+    - notify admins (email + Telegram)
+    - push stock to Woo
+    """
+    order = Order.objects.filter(dealer=request.user, status="draft").first()
+    addr_id = request.POST.get("address_id")
+    if not order or order.items.count() == 0:
+        return redirect("b2b:product_list")
+
+    addr = get_object_or_404(Address, pk=addr_id, dealer=request.user)
+
+    # Check availability
+    for it in order.items.select_related("product", "variant"):
+        available = max(0, int(it.variant.stock_qty if it.variant else it.product.stock_qty))
+        if available < it.qty:
+            messages.error(request, f"Недостатньо на складі для {it.product.sku}. Доступно: {available}")
+            return redirect("b2b:cart")
+
+    # Reserve locally
+    for it in order.items.select_related("product", "variant"):
+        if it.variant:
+            it.variant.stock_qty -= it.qty
+            it.variant.save(update_fields=["stock_qty"])
+        else:
+            it.product.stock_qty -= it.qty
+            it.product.save(update_fields=["stock_qty"])
+
+    order.status = "submitted"
+    order.shipping_address = addr
+    order.shipping_city = addr.city_name
+    order.shipping_city_ref = addr.city_ref or ""
+    order.shipping_warehouse = addr.warehouse_name
+    order.shipping_warehouse_ref = addr.warehouse_ref or ""
+    order.shipping_recipient = addr.recipient_name
+    order.shipping_phone = addr.recipient_phone
+    order.recalc()
+    order.save(update_fields=[
+        "status", "shipping_address",
+        "shipping_city", "shipping_city_ref",
+        "shipping_warehouse", "shipping_warehouse_ref",
+        "shipping_recipient", "shipping_phone",
+        "subtotal", "total",
+    ])
+    order.recalc()
+    order.save(update_fields=["status", "shipping_address", "subtotal", "total"])
+
+    # Push stock to Woo (best-effort)
+    client = woo_sync.WooClient()
+    for it in order.items.select_related("product", "variant"):
+        try:
+            if it.variant and it.product.woo_id:
+                client.update_variation_stock(it.product.woo_id, it.variant.woo_variation_id, it.variant.stock_qty)
+            elif it.product.woo_id:
+                client.update_stock(it.product.woo_id, it.product.stock_qty)
+        except Exception:
+            pass
+
+    # Notify admins: email + Telegram
+    try:
+        admin_email = getattr(settings, "ORDER_NOTIFY_EMAIL", None) or (settings.ADMINS[0][1] if getattr(settings, "ADMINS", None) else None)
+        if admin_email:
+            lines = [
+                f"Нове замовлення #{order.id}",
+                f"Клієнт: {order.dealer.username} ({order.dealer.email})",
+                f"Адреса: {addr.city_name}, {addr.warehouse_name}",
+                "",
+            ]
+            for it in order.items.select_related("product", "variant"):
+                name = it.variant.name_with_weight if it.variant else it.product.name_with_weight
+                lines.append(f"- {it.product.sku} | {name} | {it.qty} × {it.price} = {it.line_total}")
+            lines.append("")
+            lines.append(f"Сума: {order.total}")
+            send_mail(
+                subject=f"Нове замовлення #{order.id}",
+                message="\n".join(lines),
+                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+                recipient_list=[admin_email],
+                fail_silently=True,
+            )
+        # Telegram admin
+        tg.notify_admins(f"Нове замовлення #{order.id}\nКлієнт: {order.dealer.username}\nСума: {order.total} грн\nАдреса: {addr.city_name}, {addr.warehouse_name}")
+    except Exception:
+        pass
+
+    messages.success(request, "Замовлення надіслано.")
+    return redirect("b2b:order_detail", order_id=order.id)
+
+def np_cities(request):
+    """AJAX: search cities by query (q)."""
+    q = (request.GET.get("q") or "").strip()
+    data = np_client.search_cities(q) if q else []
+    return JsonResponse({"results": data})
+
+@login_required
+@require_GET
+def np_warehouses(request):
+    """AJAX: warehouses by city_ref and optional query (q)."""
+    city_ref = (request.GET.get("city_ref") or "").strip()
+    q = (request.GET.get("q") or "").strip()
+    data = np_client.get_warehouses(city_ref, q) if city_ref else []
+    return JsonResponse({"results": data})
+
+
+@user_passes_test(lambda u: u.is_staff)
+def order_np_label(request, order_id: int):
+    order = get_object_or_404(Order, id=order_id)
+    if not order.shipping_np_ref:
+        return HttpResponse("Немає NP Ref для цього замовлення.", status=400)
+    try:
+        pdf = np_api.get_label_100x100_pdf_by_ref(order.shipping_np_ref)
+    except Exception as e:
+        return HttpResponse(f"Помилка отримання етикетки: {e}", status=500)
+    resp = HttpResponse(pdf, content_type="application/pdf")
+    resp["Content-Disposition"] = f'inline; filename="label_{order.id}.pdf"'
+    return resp

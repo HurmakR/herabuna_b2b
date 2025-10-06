@@ -1,44 +1,78 @@
+{% load static %}
 <!DOCTYPE html>
-<html>
+<html lang="uk">
 <head>
   <meta charset="utf-8">
   <title>Рахунок № {{ order.id }}</title>
-  {% load static %}
   <style>
-    body { font-family: DejaVu Sans, Arial, sans-serif; font-size: 12px; }
-    table { width:100%; border-collapse: collapse; }
-    th, td { border:1px solid #999; padding:6px; vertical-align: top; }
+    /* Simple print styles for A4 */
+    @page { size: A4; margin: 20mm; }
+    body { font-family: DejaVu Sans, Arial, sans-serif; font-size: 12px; color:#111; }
+    .header { display:flex; align-items:flex-start; gap:16px; margin-bottom:12px; }
+    .logo img { height: 60px; }
+    .company { font-size: 12px; line-height: 1.3; }
+    h1 { font-size: 18px; margin: 0 0 4px 0; }
+    .muted { color:#666; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #ccc; padding: 6px; vertical-align: top; }
+    th { background: #f6f6f6; }
     .right { text-align: right; }
-    .noborder td, .noborder th { border: none; }
+    .noborder td { border: none; padding: 2px 0; }
+    .items-img { width: 64px; height: 64px; object-fit: contain; }
+    .footer { margin-top: 16px; font-size: 11px; color: #444; }
   </style>
 </head>
 <body>
-  <table class="noborder">
+  <div class="header">
+    <div class="logo">
+      <img src="{% static 'b2b/img/logo.png' %}" alt="Herabuna">
+    </div>
+    <div class="company">
+      <strong>Herabuna B2B</strong><br>
+      Рахунок № {{ order.id }} від {{ order.created_at|date:"d.m.Y" }}<br>
+      Статус: {{ order.get_status_display }}<br>
+      Email: {{ settings.DEFAULT_FROM_EMAIL|default:"" }}
+    </div>
+  </div>
+
+  <table class="noborder" style="margin-bottom:8px;">
     <tr>
-      <td><img src="{% static 'b2b/logo.png' %}" alt="logo" style="height:48px"></td>
-      <td class="right"><strong>Рахунок № {{ order.id }}</strong><br>Дата: {{ order.created_at|date:"d.m.Y" }}</td>
+      <td style="width:55%; padding-right:16px;">
+        <strong>Платник</strong><br>
+        {{ order.dealer.username }}{% if order.dealer.company_name %}, {{ order.dealer.company_name }}{% endif %}<br>
+        {% if order.dealer.email %}{{ order.dealer.email }}<br>{% endif %}
+        {% if order.dealer.phone %}Тел.: {{ order.dealer.phone }}{% endif %}
+      </td>
+      <td>
+        <strong>Доставка (Нова Пошта)</strong><br>
+        {{ order.shipping_city }}, {{ order.shipping_warehouse }}<br>
+        Одержувач: {{ order.shipping_recipient }} ({{ order.shipping_phone }})
+      </td>
     </tr>
   </table>
 
-  <h3>Позиції</h3>
   <table>
-    <tr><th>Фото</th><th>SKU</th><th>Назва</th><th>К-сть</th><th>Ціна</th><th>Сума</th></tr>
+    <tr>
+      <th style="width:72px;">Фото</th>
+      <th>SKU</th>
+      <th>Найменування</th>
+      <th class="right">К-сть</th>
+      <th class="right">Ціна, грн</th>
+      <th class="right">Сума, грн</th>
+    </tr>
     {% for i in order.items.all %}
     <tr>
-      <td style="width:80px">
-        {% if i.variant and i.variant.image_url %}
-          <img src="{{ i.variant.image_url }}" alt="" style="height:64px;object-fit:contain">
-        {% elif i.product.main_image_url %}
-          <img src="{{ i.product.main_image_url }}" alt="" style="height:64px;object-fit:contain">
-        {% endif %}
+      <td>
+        {% with img=i.variant.image_url|default:i.product.main_image_url %}
+          {% if img %}<img class="items-img" src="{{ img }}">{% endif %}
+        {% endwith %}
       </td>
-      <td>{{ i.product.sku }}{% if i.variant and i.variant.sku %}<div style="font-size:11px;color:#666">({{ i.variant.sku }})</div>{% endif %}</td>
+      <td>{{ i.product.sku }}{% if i.variant and i.variant.sku %}<div class="muted">({{ i.variant.sku }})</div>{% endif %}</td>
       <td>
         {% if i.variant %}{{ i.variant.name_with_weight }}{% else %}{{ i.product.name_with_weight }}{% endif %}
-
         {% if i.variant_attrs %}
-          <div style="font-size:11px;color:#555">
-            {% for k, v in i.variant_attrs.items %} {{ k }}: {{ v }}{% if not forloop.last %}; {% endif %}{% endfor %}
+          <div class="muted" style="font-size:11px;">
+            {% for k, v in i.variant_attrs.items %}{{ k }}: {{ v }}{% if not forloop.last %}; {% endif %}{% endfor %}
           </div>
         {% endif %}
       </td>
@@ -47,7 +81,14 @@
       <td class="right">{{ i.line_total }}</td>
     </tr>
     {% endfor %}
-    <tr><td colspan="5" class="right"><strong>Разом:</strong></td><td class="right"><strong>{{ order.total }}</strong></td></tr>
+    <tr>
+      <td colspan="5" class="right"><strong>Всього до сплати:</strong></td>
+      <td class="right"><strong>{{ order.total }}</strong></td>
+    </tr>
   </table>
+
+  <div class="footer">
+    Оплата згідно умов виставленого рахунку. Відвантаження після зарахування коштів.
+  </div>
 </body>
 </html>

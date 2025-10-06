@@ -49,15 +49,14 @@
 </table>
 
 <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
-  <form method="post" action="{% url 'b2b:submit_order' %}">
-    {% csrf_token %}<button class="btn" type="submit">Надіслати замовлення</button>
-  </form>
+  <a class="btn" href="{% url 'b2b:order_checkout' %}">Підтвердити</a>
   <form method="post" action="{% url 'b2b:cart_clear' %}" onsubmit="return confirm('Очистити кошик?');">
     {% csrf_token %}
     <button class="btn" type="submit">Очистити кошик</button>
   </form>
   <a class="btn" href="{% url 'b2b:product_list' %}">Продовжити покупки</a>
 </div>
+
 {% else %}
 <p>Кошик порожній.</p>
 {% endif %}

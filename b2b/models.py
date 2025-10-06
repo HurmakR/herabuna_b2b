@@ -1,7 +1,7 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.utils import timezone
-
+from django.conf import settings
 
 class Dealer(AbstractUser):
     company_name = models.CharField(max_length=255, blank=True)
@@ -11,10 +11,27 @@ class Dealer(AbstractUser):
     billing_address = models.TextField(blank=True)
     shipping_address = models.TextField(blank=True)
     is_dealer = models.BooleanField(default=True)
-
+    telegram_chat_id = models.CharField(max_length=32, blank=True, null=True)
     class Meta:
         verbose_name = "Dealer"
         verbose_name_plural = "Dealers"
+
+class Address(models.Model):
+    """Nova Poshta delivery address for a dealer (warehouse only)."""
+    dealer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="addresses")
+    title = models.CharField(max_length=100, help_text="Short label, e.g. Shop #1")
+    # NP fields (warehouse destination)
+    city_name = models.CharField(max_length=120)
+    city_ref = models.CharField(max_length=64)
+    warehouse_name = models.CharField(max_length=200)
+    warehouse_ref = models.CharField(max_length=64)
+    recipient_name = models.CharField(max_length=120)
+    recipient_phone = models.CharField(max_length=30)
+    is_default = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.title}: {self.city_name} / {self.warehouse_name}"
 
 
 class Category(models.Model):
@@ -162,7 +179,7 @@ class Order(models.Model):
     """Dealer order with a simple lifecycle."""
     STATUS_CHOICES = [
         ("draft", "Чернетка"),
-        ("submitted", "Очікує підтвердження"),
+        ("submitted", "Надіслано"),
         ("pending_payment", "Очікує оплату"),
         ("shipped", "Відправлено"),
         ("cancelled", "Скасовано"),
@@ -177,9 +194,18 @@ class Order(models.Model):
     note = models.TextField(blank=True)
 
     # Shipping info (filled on shipment)
-    shipping_provider = models.CharField(max_length=64, blank=True, default="Nova Poshta")
+    shipping_address = models.ForeignKey('Address', null=True, blank=True,
+                                         on_delete=models.SET_NULL, related_name="orders")
     shipping_ttn = models.CharField(max_length=64, blank=True)
+    shipping_np_ref = models.CharField(max_length=64, blank=True)
     shipped_at = models.DateTimeField(null=True, blank=True)
+    shipping_city = models.CharField(max_length=120, blank=True)
+    shipping_city_ref = models.CharField(max_length=64, blank=True)
+    shipping_warehouse = models.CharField(max_length=200, blank=True)
+    shipping_warehouse_ref = models.CharField(max_length=64, blank=True)
+    shipping_recipient = models.CharField(max_length=120, blank=True)
+    shipping_phone = models.CharField(max_length=30, blank=True)
+
 
     def recalc(self):
         """Recalculate totals based on items."""

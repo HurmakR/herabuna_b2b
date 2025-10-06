@@ -1,0 +1,31 @@
+{% extends "b2b/base.html" %}
+{% block content %}
+<h2>Адреси доставки (Нова Пошта)</h2>
+
+<ul style="display:flex; gap:16px; list-style:none; padding:0; margin:0 0 12px 0;">
+  <li><a href="{% url 'b2b:profile' %}">Облікові дані</a></li>
+  <li><strong>Адреси доставки</strong></li>
+</ul>
+
+<p><a class="btn" href="{% url 'b2b:address_create' %}">Додати адресу</a></p>
+
+<table>
+  <tr><th>Назва</th><th>Місто</th><th>Відділення</th><th>Отримувач</th><th></th></tr>
+  {% for a in addresses %}
+  <tr>
+    <td>{{ a.title }}{% if a.is_default %} <span style="color:#2a8">(за замовчуванням)</span>{% endif %}</td>
+    <td>{{ a.city_name }}</td>
+    <td>{{ a.warehouse_name }}</td>
+    <td>{{ a.recipient_name }}<div style="font-size:12px;color:#666">{{ a.recipient_phone }}</div></td>
+    <td>
+      <a class="btn" href="{% url 'b2b:address_edit' a.id %}">Редагувати</a>
+      <form method="post" action="{% url 'b2b:address_delete' a.id %}" style="display:inline" onsubmit="return confirm('Видалити адресу?');">
+        {% csrf_token %}<button class="btn" type="submit">Видалити</button>
+      </form>
+    </td>
+  </tr>
+  {% empty %}
+  <tr><td colspan="5">Немає адрес. Додайте першу.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}
