@@ -4,86 +4,104 @@
 <head>
   <meta charset="utf-8">
   <title>{% block title %}Herabuna B2B{% endblock %}</title>
-  <style>
-    body { font-family: Arial, sans-serif; font-size:14px; margin:0; }
-    .container { width: 100%; max-width: 1100px; margin: 0 auto; padding: 0 12px; }
-    .nav { display:grid; grid-template-columns: 1fr auto 1fr; align-items:center; gap:16px; padding:10px 0; border-bottom:1px solid #ddd; }
-    .nav a { text-decoration:none; color:#00c; }
-    .nav-left { display:flex; gap:12px; align-items:center; }
-    .nav-center { text-align:center; }
-    .nav-right { display:flex; gap:16px; align-items:center; justify-content:flex-end; }
-    .logo { display:inline-block; }
-    .logo img { height: 40px; object-fit:contain; }
-    .badge { display:inline-block; min-width:18px; padding:2px 6px; border-radius:10px; font-size:12px; line-height:1; background:#e33; color:#fff; text-align:center; }
-    .sum { font-size:12px; color:#333; }
-    .username a { font-size:13px; color:#555; text-decoration:none; border-bottom:1px dotted #aaa; }
-    .messages { list-style:none; padding:0; margin:10px 0; }
-    .messages li { padding:8px 10px; border:1px solid #ddd; margin-bottom:6px; }
-    .messages li.success { border-color:#2a8; background:#eafff3; }
-    .messages li.warning { border-color:#e6a100; background:#fff6e0; }
-    .messages li.error { border-color:#e33; background:#ffecec; }
-    table { width:100%; border-collapse:collapse; }
-    th, td { border:1px solid #ddd; padding:8px; vertical-align:top; }
-    .right { text-align:right; }
-    .btn { display:inline-block; padding:6px 10px; border:1px solid #333; border-radius:4px; background:#f5f5f5; cursor:pointer; text-decoration:none; }
-  </style>
+
+  <!-- Bootstrap 5 CSS (CDN) -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Custom CSS -->
+  <link href="{% static 'b2b/css/app.css' %}" rel="stylesheet">
+
+  <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
-<body>
-  <div class="container">
-    <div class="nav">
-      <div class="nav-left">
-        <a href="{% url 'b2b:product_list' %}">Каталог</a>
+<body class="bg-light">
+
+  <!-- Navbar -->
+  <nav class="navbar navbar-expand-lg bg-white border-bottom shadow-sm position-relative">
+    <div class="container">
+      <div class="d-flex align-items-center gap-3">
+        <a class="nav-link" href="{% url 'b2b:product_list' %}">Каталог</a>
 
         {% if user.is_authenticated and user.is_staff %}
-          <a href="{% url 'b2b:orders_admin' %}">
+          <a class="nav-link position-relative" href="{% url 'b2b:orders_admin' %}">
             Замовлення клієнтів
-            {% if admin_new_orders %}<span class="badge">{{ admin_new_orders }}</span>{% endif %}
+            {% if admin_new_orders %}
+              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                {{ admin_new_orders }}
+              </span>
+            {% endif %}
           </a>
         {% endif %}
 
         {% if user.is_authenticated and not user.is_staff %}
-          <a href="{% url 'b2b:dashboard' %}">
-            Замовлення
-            {% if client_unpaid_count %}<span class="badge">{{ client_unpaid_count }}</span>{% endif %}
+          <a class="nav-link position-relative" href="{% url 'b2b:dashboard' %}">
+            Мої замовлення
+            {% if client_unpaid_count %}
+              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                {{ client_unpaid_count }}
+              </span>
+            {% endif %}
           </a>
         {% endif %}
       </div>
 
-      <div class="nav-center">
-        <a class="logo" href="{% url 'b2b:product_list' %}">
-          <img src="{% static 'b2b/logo.png' %}" alt="Herabuna">
-        </a>
-      </div>
+      <!-- Centered brand -->
+      <a class="navbar-brand position-absolute top-50 start-50 translate-middle" href="{% url 'b2b:product_list' %}">
+        <img src="{% static 'b2b/img/logo.png' %}" alt="Herabuna" height="36">
+      </a>
 
-      <div class="nav-right">
+      <div class="d-flex align-items-center gap-3 ms-auto">
         {% if user.is_authenticated and not user.is_staff %}
-          <a href="{% url 'b2b:cart' %}">
+          <a class="btn btn-outline-primary position-relative" href="{% url 'b2b:cart' %}">
             Кошик
-            {% if cart_qty_sum %}<span class="badge">{{ cart_qty_sum }}</span>{% endif %}
-            {% if cart_total %}<span class="sum">{{ cart_total|floatformat:2 }} грн</span>{% endif %}
+            {% if cart_qty_sum %}
+              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                {{ cart_qty_sum }}
+              </span>
+            {% endif %}
+            {% if cart_total %}<span class="ms-2 small text-muted">{{ cart_total|floatformat:2 }} грн</span>{% endif %}
           </a>
         {% endif %}
 
         {% if user.is_authenticated %}
-          <span class="username"><a href="{% url 'b2b:profile' %}">{{ user.username }}</a></span>
-          <form method="post" action="{% url 'b2b:logout' %}" style="display:inline;">
-            {% csrf_token %}<button class="btn" type="submit">Вийти</button>
+          <a class="text-decoration-none" href="{% url 'b2b:profile' %}">
+            <span class="fw-semibold">{{ user.username }}</span>
+          </a>
+          <form method="post" action="{% url 'b2b:logout' %}" class="d-inline">
+            {% csrf_token %}
+            <button class="btn btn-outline-secondary">Вийти</button>
           </form>
         {% else %}
-          <a class="btn" href="{% url 'b2b:login' %}">Увійти</a>
+          <a class="btn btn-primary" href="{% url 'b2b:login' %}">Увійти</a>
         {% endif %}
       </div>
     </div>
+  </nav>
 
+  <!-- Flash messages -->
+  <div class="container mt-3">
     {% if messages %}
-      <ul class="messages">
-        {% for message in messages %}
-          <li class="{{ message.tags }}">{{ message }}</li>
-        {% endfor %}
-      </ul>
+      {% for message in messages %}
+        <div class="alert alert-{{ message.tags|default:'secondary' }} alert-dismissible fade show" role="alert">
+          {{ message }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+      {% endfor %}
     {% endif %}
-
-    {% block content %}{% endblock %}
   </div>
+
+  <main class="container my-3">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="border-top py-4 mt-4 bg-white">
+    <div class="container small text-muted">
+      © {{ now|date:"Y" }} Herabuna B2B
+    </div>
+  </footer>
+
+  <!-- Bootstrap Bundle JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <!-- App JS -->
+  <script src="{% static 'b2b/js/app.js' %}"></script>
+  {% block scripts %}{% endblock %}
 </body>
 </html>

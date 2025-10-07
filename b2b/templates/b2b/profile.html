@@ -1,17 +1,20 @@
 {% extends "b2b/base.html" %}
+{% block title %}Профіль — Herabuna B2B{% endblock %}
 {% block content %}
-<h2>Профіль</h2>
+<h2 class="h4 mb-3">Профіль</h2>
 
-<ul style="display:flex; gap:16px; list-style:none; padding:0; margin:0 0 12px 0;">
-  <li><strong>Облікові дані</strong></li>
-  <li><a href="{% url 'b2b:address_list' %}">Адреси доставки</a></li>
+<ul class="nav nav-pills mb-3">
+  <li class="nav-item"><a class="nav-link active" href="#">Облікові дані</a></li>
+  <li class="nav-item"><a class="nav-link" href="{% url 'b2b:address_list' %}">Адреси доставки</a></li>
 </ul>
 
-<form method="post">
+<form method="post" class="card p-3">
   {% csrf_token %}
-  <table>
-    {{ form.as_table }}
-  </table>
-  <button class="btn" type="submit">Зберегти</button>
+  <div class="row g-3">
+    {{ form.as_p }}
+  </div>
+  <div class="mt-2">
+    <button class="btn btn-primary">Зберегти</button>
+  </div>
 </form>
 {% endblock %}

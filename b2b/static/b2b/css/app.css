@@ -1,0 +1,4 @@
+/* Minimal custom tweaks */
+.table td, .table th { vertical-align: middle; }
+.card-product img { object-fit: contain; height: 160px; }
+.navbar .nav-link { color: #0d6efd; }
