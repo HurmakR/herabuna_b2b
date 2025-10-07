@@ -734,12 +734,13 @@ def np_warehouses(request):
 @user_passes_test(lambda u: u.is_staff)
 def order_np_label(request, order_id: int):
     order = get_object_or_404(Order, id=order_id)
-    if not order.shipping_np_ref:
-        return HttpResponse("Немає NP Ref для цього замовлення.", status=400)
+    if not (order.shipping_np_ref or order.shipping_ttn):
+        return HttpResponse("Немає NP Ref або номера ТТН для цього замовлення.", status=400)
     try:
-        pdf = np_api.get_label_100x100_pdf_by_ref(order.shipping_np_ref)
+        pdf = np_api.get_label_100x100_pdf_by_ref(order.shipping_np_ref, ttn_number=order.shipping_ttn)
     except Exception as e:
         return HttpResponse(f"Помилка отримання етикетки: {e}", status=500)
     resp = HttpResponse(pdf, content_type="application/pdf")
     resp["Content-Disposition"] = f'inline; filename="label_{order.id}.pdf"'
     return resp
+

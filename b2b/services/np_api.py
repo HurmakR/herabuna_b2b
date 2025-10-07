@@ -238,30 +238,58 @@ def create_ttn(order) -> tuple[str, str]:
     return ttn, (ref or "")
 
 
-def get_label_100x100_pdf_by_ref(doc_ref: str) -> bytes:
+def get_label_100x100_pdf_by_ref(doc_ref: str, ttn_number: str = "") -> bytes:
     """
-    Request 100x100 label for a given InternetDocument Ref.
-    NP may return a temporary file URL or a base64 string in 'file' field.
+    Try JSON printMarking100x100 first. If NP returns 500 or no file,
+    fallback to legacy HTTP endpoint on my.novaposhta.ua.
     Returns raw PDF bytes.
     """
-    if not doc_ref:
-        raise RuntimeError("Document Ref is empty")
+    if not doc_ref and not ttn_number:
+        raise RuntimeError("Document Ref or TTN number is required")
 
-    rows = _post("InternetDocument", "printMarking100x100", {"DocumentRefs": [doc_ref]})
-    if not rows:
-        raise RuntimeError("No label returned from NP.")
-    file_field = rows[0].get("file") or ""
-    if not file_field:
-        raise RuntimeError("Label file not present in NP response.")
-
-    # Case 1: HTTP(S) URL to the PDF
-    if file_field.startswith("http"):
-        r = requests.get(file_field, timeout=25)
-        r.raise_for_status()
-        return r.content
-
-    # Case 2: base64-encoded PDF
+    # --- Attempt 1: JSON API ---
     try:
-        return base64.b64decode(file_field)
-    except Exception as exc:
-        raise RuntimeError(f"Unknown label format from NP: {exc}")
+        if doc_ref:
+            rows = _post("InternetDocument", "printMarking100x100", {"DocumentRefs": [doc_ref]})
+            if rows:
+                file_field = rows[0].get("file") or ""
+                if file_field:
+                    if file_field.startswith("http"):
+                        r = requests.get(file_field, timeout=25)
+                        r.raise_for_status()
+                        return r.content
+                    # base64 case
+                    try:
+                        return base64.b64decode(file_field)
+                    except Exception:
+                        pass
+    except Exception:
+        # fall through to HTTP fallback
+        pass
+
+    # --- Attempt 2: Legacy HTTP fallback ---
+    api_key = getattr(settings, "NOVA_POSHTA_API_KEY", None)
+    if not api_key:
+        raise RuntimeError("NOVA_POSHTA_API_KEY is not configured")
+
+    ref_or_num = doc_ref or ttn_number
+    # Primary fallback (PDF, 100x100). Suffix '/zebra' часто потрібен для термодруку,
+    # але для PDF теж працює; якщо ні — спробуємо без '/zebra'.
+    urls = [
+        f"https://my.novaposhta.ua/orders/printMarking100x100/orders[]/{ref_or_num}/type/pdf/apiKey/{api_key}/zebra",
+        f"https://my.novaposhta.ua/orders/printMarking100x100/orders[]/{ref_or_num}/type/pdf/apiKey/{api_key}",
+    ]
+    last_err = None
+    for url in urls:
+        try:
+            r = requests.get(url, timeout=30)
+            r.raise_for_status()
+            # Очікуємо PDF
+            if r.headers.get("Content-Type", "").lower().startswith("application/pdf") or r.content.startswith(b"%PDF"):
+                return r.content
+            # Інколи повертає HTML із помилкою — продовжимо до наступної спроби
+        except Exception as e:
+            last_err = e
+            continue
+
+    raise RuntimeError(f"Failed to fetch NP 100x100 label via JSON and HTTP fallback: {last_err or 'unknown error'}")
