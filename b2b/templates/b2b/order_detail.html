@@ -33,12 +33,15 @@
 </table>
 
 <p style="margin-top:10px;">
-  <a class="btn" href="{% url 'b2b:invoice_pdf' order.id %}">Рахунок</a>
-  <a class="btn" href="{% url 'b2b:waybill_pdf' order.id %}">Накладна</a>
+  {% if order.status != 'draft' and order.status != 'cancelled' %}
+    <a class="btn" href="{% url 'b2b:invoice_pdf' order.id %}">Рахунок</a>
+    <a class="btn" href="{% url 'b2b:waybill_pdf' order.id %}">Накладна</a>
+  {% endif %}
   {% if request.user.is_staff and order.status == 'shipped' and order.shipping_ttn %}
     <a class="btn" href="{% url 'b2b:order_np_label' order.id %}">Етикетка 10×10</a>
   {% endif %}
 </p>
+
 
 
 {# Show delete button only for non-staff and only when status is draft or cancelled #}

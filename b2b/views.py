@@ -744,3 +744,17 @@ def order_np_label(request, order_id: int):
     resp["Content-Disposition"] = f'inline; filename="label_{order.id}.pdf"'
     return resp
 
+@login_required
+@require_http_methods(["POST"])
+@transaction.atomic
+def order_delete(request, order_id: int):
+    """Allow a dealer to delete their own order if it is draft or cancelled."""
+    order = get_object_or_404(Order, id=order_id, dealer=request.user)
+    if order.status not in ("draft", "cancelled"):
+        messages.error(request, "Замовлення можна видалити лише якщо воно чернетка або скасоване.")
+        return redirect("b2b:order_detail", order_id=order.id)
+
+    # No stock changes
+    order.delete()
+    messages.info(request, "Замовлення видалено.")
+    return redirect("b2b:dashboard")

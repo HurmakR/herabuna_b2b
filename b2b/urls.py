@@ -45,4 +45,5 @@ urlpatterns = [
 
     path("np/cities/", views.np_cities, name="np_cities"),
     path("np/warehouses/", views.np_warehouses, name="np_warehouses"),
+    path("orders/<int:order_id>/delete/", views.order_delete, name="order_delete"),
 ]
