@@ -1,0 +1,43 @@
+{% extends "b2b/base.html" %}
+{% block content %}
+<h2>Замовлення (адмін)</h2>
+
+<form method="get" style="margin-bottom:10px;">
+  <label>Статус:</label>
+  <select name="status" onchange="this.form.submit()">
+    <option value="">— всі —</option>
+    <option value="submitted" {% if status == 'submitted' %}selected{% endif %}>Надіслано</option>
+    <option value="pending_payment" {% if status == 'pending_payment' %}selected{% endif %}>Очікує оплату</option>
+    <option value="shipped" {% if status == 'shipped' %}selected{% endif %}>Відправлено</option>
+    <option value="cancelled" {% if status == 'cancelled' %}selected{% endif %}>Скасовано</option>
+  </select>
+</form>
+
+<table>
+  <tr><th>ID</th><th>Клієнт</th><th>Статус</th><th>Сума</th><th>Створено</th><th>Дії</th></tr>
+  {% for o in orders %}
+  <tr>
+    <td><a href="{% url 'b2b:order_detail' o.id %}">#{{ o.id }}</a></td>
+    <td>{{ o.dealer.username }}{% if o.dealer.email %}<div style="font-size:12px;color:#666">{{ o.dealer.email }}</div>{% endif %}</td>
+    <td>{{ o.get_status_display }}</td>
+    <td class="right">{{ o.total }}</td>
+    <td>{{ o.created_at }}</td>
+    <td>
+      {% if o.status == 'submitted' %}
+        <form method="post" action="{% url 'b2b:order_admin_action' o.id 'confirm' %}" style="display:inline">{% csrf_token %}<button class="btn" type="submit">Підтвердити</button></form>
+        <form method="post" action="{% url 'b2b:order_admin_action' o.id 'cancel' %}" style="display:inline" onsubmit="return confirm('Скасувати замовлення і повернути товар на склад?');">{% csrf_token %}<button class="btn" type="submit">Скасувати</button></form>
+      {% elif o.status == 'pending_payment' %}
+        <form method="post" action="{% url 'b2b:order_admin_action' o.id 'ship' %}" style="display:inline">{% csrf_token %}<button class="btn" type="submit">Відвантажити</button></form>
+        <form method="post" action="{% url 'b2b:order_admin_action' o.id 'cancel' %}" style="display:inline" onsubmit="return confirm('Скасувати і повернути товар на склад?');">{% csrf_token %}<button class="btn" type="submit">Скасувати</button></form>
+      {% elif o.status == 'shipped' %}
+        <span style="font-size:12px;color:#333">ТТН: {{ o.shipping_ttn }}</span>
+      {% else %}
+        <span style="color:#777">—</span>
+      {% endif %}
+    </td>
+  </tr>
+  {% empty %}
+  <tr><td colspan="6">Немає замовлень.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

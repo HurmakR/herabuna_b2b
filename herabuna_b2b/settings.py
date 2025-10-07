@@ -42,6 +42,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'b2b.context_processors.cart_badge',
             ],
         },
     },
@@ -79,3 +80,11 @@ WOO_BASE_URL = os.environ.get('WOO_BASE_URL')
 WOO_CONSUMER_KEY = os.environ.get('WOO_CONSUMER_KEY')
 WOO_CONSUMER_SECRET = os.environ.get('WOO_CONSUMER_SECRET')
 
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_ADMIN_CHAT_ID = os.environ.get("TELEGRAM_ADMIN_CHAT_ID")
+
+NOVA_POSHTA_API_KEY = os.environ.get("NOVA_POSHTA_API_KEY")
+NP_SENDER_REF = os.environ.get("NP_SENDER_REF")
+NP_SENDER_CONTACT_REF = os.environ.get("NP_SENDER_CONTACT_REF")
+NP_SENDER_WAREHOUSE_REF = os.environ.get("NP_SENDER_WAREHOUSE_REF")
+NP_SENDER_CITY_REF = os.environ.get("NP_SENDER_CITY_REF")

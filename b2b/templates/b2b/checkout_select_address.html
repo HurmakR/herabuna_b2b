@@ -1,0 +1,39 @@
+{% extends "b2b/base.html" %}
+{% block content %}
+<h2>Підтвердження замовлення</h2>
+
+<p>Оберіть адресу доставки (Нова Пошта):</p>
+
+<form method="post" action="{% url 'b2b:order_checkout_confirm' %}">
+  {% csrf_token %}
+  <select name="address_id" required>
+    {% for a in addresses %}
+      <option value="{{ a.id }}">{{ a.title }} — {{ a.city_name }}, {{ a.warehouse_name }}</option>
+    {% endfor %}
+  </select>
+  <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
+    <a class="btn" href="{% url 'b2b:cart' %}">Повернутись до замовлення</a>
+    <button class="btn" type="submit">Підтвердити</button>
+  </div>
+</form>
+
+<h3 style="margin-top:16px;">Зміст замовлення</h3>
+<table>
+  <tr><th>Фото</th><th>SKU</th><th>Назва</th><th>К-сть</th><th>Ціна</th><th>Сума</th></tr>
+  {% for i in order.items.all %}
+  <tr>
+    <td style="width:90px;">
+      {% with img=i.variant.image_url|default:i.product.main_image_url %}
+        {% if img %}<img src="{{ img }}" alt="" style="height:70px;object-fit:contain">{% endif %}
+      {% endwith %}
+    </td>
+    <td>{{ i.product.sku }}</td>
+    <td>{% if i.variant %}{{ i.variant.name_with_weight }}{% else %}{{ i.product.name_with_weight }}{% endif %}</td>
+    <td class="right">{{ i.qty }}</td>
+    <td class="right">{{ i.price }}</td>
+    <td class="right">{{ i.line_total }}</td>
+  </tr>
+  {% endfor %}
+  <tr><td colspan="5" class="right"><strong>Разом:</strong></td><td class="right"><strong>{{ order.total }}</strong></td></tr>
+</table>
+{% endblock %}

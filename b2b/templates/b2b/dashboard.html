@@ -1,20 +1,33 @@
 {% extends "b2b/base.html" %}
 {% block content %}
-<h2>Ваші останні замовлення</h2>
-{% if orders %}
+<h2>Мої замовлення</h2>
+
 <table>
-  <tr><th>ID</th><th>Статус</th><th>Сума</th><th>Створено</th><th></th></tr>
+  <tr>
+    <th>ID</th>
+    <th>Статус</th>
+    <th class="right">Сума</th>
+    <th>Створено</th>
+    <th>ТТН</th>
+    <th></th>
+  </tr>
   {% for o in orders %}
-    <tr>
-      <td>{{ o.id }}</td>
-      <td>{{ o.get_status_display }}</td>
-      <td class="right">{{ o.total }}</td>
-      <td>{{ o.created_at }}</td>
-      <td><a class="btn" href="{% url 'b2b:order_detail' o.id %}">Деталі</a></td>
-    </tr>
+  <tr>
+    <td>#{{ o.id }}</td>
+    <td>{{ o.get_status_display }}</td>
+    <td class="right">{{ o.total }}</td>
+    <td>{{ o.created_at|date:"d.m.Y H:i" }}</td>
+    <td>
+      {% if o.shipping_ttn %}
+        <strong>{{ o.shipping_ttn }}</strong>
+      {% else %}
+        <span style="color:#777">—</span>
+      {% endif %}
+    </td>
+    <td><a class="btn" href="{% url 'b2b:order_detail' o.id %}">Деталі</a></td>
+  </tr>
+  {% empty %}
+  <tr><td colspan="6">Замовлень ще немає.</td></tr>
   {% endfor %}
 </table>
-{% else %}
-<p>Замовлень поки немає.</p>
-{% endif %}
 {% endblock %}
