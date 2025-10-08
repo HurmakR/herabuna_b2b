@@ -29,28 +29,31 @@
         <td>{{ o.created_at|date:"d.m.Y H:i" }}</td>
         <td class="text-nowrap">
           <a class="btn btn-outline-secondary btn-sm" href="{% url 'b2b:order_detail' o.id %}">Деталі</a>
+
           {% if o.status == 'submitted' %}
-            <form method="post" action="{% url 'b2b:order_admin_action' o.id %}" class="d-inline">
+            <form method="post" action="{% url 'b2b:order_admin_action' o.id 'confirm' %}" class="d-inline">
               {% csrf_token %}
-              <input type="hidden" name="action" value="confirm">
               <button class="btn btn-success btn-sm">Підтвердити</button>
             </form>
-            <form method="post" action="{% url 'b2b:order_admin_action' o.id %}" class="d-inline" onsubmit="return confirm('Скасувати замовлення?')">
+
+            <form method="post" action="{% url 'b2b:order_admin_action' o.id 'cancel' %}" class="d-inline"
+                  onsubmit="return confirm('Скасувати замовлення?')">
               {% csrf_token %}
-              <input type="hidden" name="action" value="cancel">
               <button class="btn btn-danger btn-sm">Скасувати</button>
             </form>
+
           {% elif o.status == 'pending_payment' %}
-            <form method="post" action="{% url 'b2b:order_admin_action' o.id %}" class="d-inline">
+            <form method="post" action="{% url 'b2b:order_admin_action' o.id 'ship' %}" class="d-inline">
               {% csrf_token %}
-              <input type="hidden" name="action" value="ship">
               <button class="btn btn-primary btn-sm">Відвантажити</button>
             </form>
-            <form method="post" action="{% url 'b2b:order_admin_action' o.id %}" class="d-inline" onsubmit="return confirm('Скасувати замовлення?')">
+
+            <form method="post" action="{% url 'b2b:order_admin_action' o.id 'cancel' %}" class="d-inline"
+                  onsubmit="return confirm('Скасувати замовлення?')">
               {% csrf_token %}
-              <input type="hidden" name="action" value="cancel">
               <button class="btn btn-outline-danger btn-sm">Скасувати</button>
             </form>
+
           {% else %}
             <span class="text-muted">—</span>
           {% endif %}

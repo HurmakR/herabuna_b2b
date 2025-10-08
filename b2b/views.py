@@ -13,7 +13,8 @@ from django.views.decorators.http import require_http_methods
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
 from .services import np_client
-
+from django.core.paginator import Paginator
+from urllib.parse import urlencode
 
 try:
     from weasyprint import HTML
@@ -119,6 +120,18 @@ def address_delete(request, pk: int):
     messages.info(request, "Адресу видалено.")
     return redirect("b2b:address_list")
 
+def _windowed_range(page_obj, width=2):
+    cur = page_obj.number
+    total = page_obj.paginator.num_pages
+    start = max(1, cur - width)
+    end = min(total, cur + width)
+    pages = []
+    if start > 1:
+        pages.extend([1, None])  # None = ellipsis
+    pages.extend(range(start, end + 1))
+    if end < total:
+        pages.extend([None, total])
+    return pages
 
 @login_required
 def product_list(request):
@@ -131,41 +144,58 @@ def product_list(request):
     brand = request.GET.get("brand")
     sort = request.GET.get("sort", "").strip()  # price_asc, price_desc, stock_asc, stock_desc
 
-    products = Product.objects.all() if request.user.is_staff else Product.objects.filter(is_active=True)
+    products = Product.objects.select_related("brand").prefetch_related("categories").all()
 
+    q = request.GET.get("q", "").strip()
     if q:
         products = products.filter(Q(name__icontains=q) | Q(sku__icontains=q))
-    if cat and cat.isdigit():
-        products = products.filter(categories__id=int(cat))
-    if brand and brand.isdigit():
-        products = products.filter(brand_id=int(brand))
 
-    # Sorting
+    cat = request.GET.get("category") or request.GET.get("cat")  # підтримуємо стару назву
+    if cat:
+        products = products.filter(categories__id=cat)
+
+    brand = request.GET.get("brand")
+    if brand:
+        products = products.filter(brand_id=brand)
+
+    sort = request.GET.get("sort", "")
     if sort == "price_asc":
         products = products.order_by("wholesale_price", "name")
     elif sort == "price_desc":
         products = products.order_by("-wholesale_price", "name")
-    elif sort == "stock_asc":
-        products = products.order_by("stock_qty", "name")
     elif sort == "stock_desc":
         products = products.order_by("-stock_qty", "name")
+    elif sort == "stock_asc":
+        products = products.order_by("stock_qty", "name")
     else:
         products = products.order_by("name")
 
-    products = products.distinct()
-    categories = Category.objects.order_by("name")
-    brands = Brand.objects.order_by("name")
+    # --- pagination ---
+    per_page = 24
+    paginator = Paginator(products, per_page)
+    page_number = request.GET.get("page")
+    page_obj = paginator.get_page(page_number)
+    products_page = page_obj.object_list
 
-    ctx = {
-        "products": products,
+    # keep current filters without 'page'
+    qs_params = request.GET.copy()
+    qs_params.pop("page", None)
+    qs = qs_params.urlencode()
+
+    context = {
+        "products": products_page,
+        "categories": Category.objects.all(),
+        "brands": Brand.objects.all(),
         "q": q,
-        "categories": categories,
-        "brands": brands,
-        "selected_cat": int(cat) if (cat and cat.isdigit()) else None,
-        "selected_brand": int(brand) if (brand and brand.isdigit()) else None,
+        "selected_cat": int(cat) if cat else "",
+        "selected_brand": int(brand) if brand else "",
         "sort": sort,
+
+        "page_obj": page_obj,
+        "page_numbers": _windowed_range(page_obj, width=2),
+        "qs": qs,
     }
-    return render(request, "b2b/product_list.html", ctx)
+    return render(request, "b2b/product_list.html", context)
 
 
 @login_required
@@ -758,3 +788,27 @@ def order_delete(request, order_id: int):
     order.delete()
     messages.info(request, "Замовлення видалено.")
     return redirect("b2b:dashboard")
+
+def _bootstrapize_form(form):
+    """Add Bootstrap classes to form fields (text/select vs checkbox)."""
+    for name, field in form.fields.items():
+        w = field.widget
+        klass = w.attrs.get("class", "")
+        if getattr(w, "input_type", "") == "checkbox":
+            w.attrs["class"] = (klass + " form-check-input").strip()
+        else:
+            # text, email, number, select, textarea
+            w.attrs["class"] = (klass + " form-control").strip()
+
+@login_required
+def profile(request):
+    if request.method == "POST":
+        form = ProfileForm(request.POST, instance=request.user)
+    else:
+        form = ProfileForm(instance=request.user)
+    _bootstrapize_form(form)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Профіль збережено.")
+        return redirect("b2b:profile")
+    return render(request, "b2b/profile.html", {"form": form})

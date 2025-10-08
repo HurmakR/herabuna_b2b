@@ -57,16 +57,29 @@
 
         <div class="mt-auto">
           {% if user.is_staff %}
-            <!-- Admin inline edit -->
-            <form class="d-flex gap-2 align-items-center" method="post"
-                  action="{% url 'b2b:product_update_inline' p.id %}">
+            <form class="mt-2" method="post" action="{% url 'b2b:product_update_inline' p.id %}">
               {% csrf_token %}
-              <input type="number" name="wholesale_price" class="form-control form-control-sm" step="0.01" value="{{ p.wholesale_price }}">
-              <input type="number" name="stock_qty" class="form-control form-control-sm" step="1" value="{{ p.stock_qty }}">
-              <button class="btn btn-outline-primary btn-sm">Зберегти</button>
+              <div class="row g-2 align-items-end">
+                <div class="col-6">
+                  <label class="form-label small text-muted">Ціна, грн</label>
+                  <input type="number" name="wholesale_price" class="form-control form-control-sm" step="0.01" value="{{ p.wholesale_price }}">
+                </div>
+                <div class="col-6">
+                  <label class="form-label small text-muted">Залишок, шт</label>
+                  <input type="number" name="stock_qty" class="form-control form-control-sm" step="1" value="{{ p.stock_qty }}">
+                </div>
+                <div class="col-12 d-flex gap-2">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="is_active" id="a{{ p.id }}" {% if p.is_active %}checked{% endif %}>
+                    <label class="form-check-label small" for="a{{ p.id }}">активний</label>
+                  </div>
+                  <button class="btn btn-outline-primary btn-sm ms-auto">Зберегти</button>
+                </div>
+              </div>
             </form>
           {% else %}
             {% if p.stock_qty > 0 %}
+              <div class="mb-2 small text-muted">В наявності: <strong>{{ p.stock_qty }}</strong> шт</div>
               <form method="post" action="{% url 'b2b:add_to_cart' p.id %}" class="mt-2 d-flex align-items-center gap-2" novalidate>
                 {% csrf_token %}
                 <div class="input-group w-auto" data-stepper>
@@ -90,4 +103,27 @@
     </div>
   {% endfor %}
 </div>
+{% if page_obj.has_other_pages %}
+<nav aria-label="Пагінація" class="mt-4">
+  <ul class="pagination justify-content-center">
+    <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}">
+      <a class="page-link" href="?{{ qs }}{% if page_obj.has_previous %}&page={{ page_obj.previous_page_number }}{% endif %}" aria-label="Previous">&laquo;</a>
+    </li>
+
+    {% for n in page_numbers %}
+      {% if n %}
+        <li class="page-item {% if page_obj.number == n %}active{% endif %}">
+          <a class="page-link" href="?{{ qs }}&page={{ n }}">{{ n }}</a>
+        </li>
+      {% else %}
+        <li class="page-item disabled"><span class="page-link">…</span></li>
+      {% endif %}
+    {% endfor %}
+
+    <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}">
+      <a class="page-link" href="?{{ qs }}{% if page_obj.has_next %}&page={{ page_obj.next_page_number }}{% endif %}" aria-label="Next">&raquo;</a>
+    </li>
+  </ul>
+</nav>
+{% endif %}
 {% endblock %}

@@ -1,4 +1,4 @@
-// Quantity stepper: works for elements with data-stepper wrapper
+// Quantity stepper (plus/minus) for elements with data-stepper
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('[data-stepper-btn]');
   if (!btn) return;
