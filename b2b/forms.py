@@ -1,22 +1,29 @@
 from django import forms
-from django.contrib.auth import get_user_model
-from .models import Address, Dealer
 from django.contrib.auth.forms import UserCreationForm
+from .models import Dealer, Address
 
-Dealer = get_user_model()
 class DealerSignUpForm(UserCreationForm):
-    class Meta:
-        model = Dealer
-        fields = ("username", "company_name", "email", "phone", "billing_address", "shipping_address")
+    email = forms.EmailField(label="Email", required=True)
+    company_name = forms.CharField(label="Компанія / Магазин", max_length=255, required=False)
+    phone = forms.CharField(label="Телефон", max_length=50, required=False)
 
+    class Meta(UserCreationForm.Meta):
+        model = Dealer
+        fields = ("username", "email", "company_name", "phone")  # password1/2 додаються базовим класом
+        labels = {
+            "username": "Логін",
+        }
 
 class ProfileForm(forms.ModelForm):
-    """Basic dealer profile form."""
     class Meta:
         model = Dealer
-        fields = ["username", "email", "company_name", "phone", "telegram_chat_id"]
-        widgets = {
-            "username": forms.TextInput(attrs={"readonly": "readonly"}),
+        fields = ("email", "company_name", "phone", "first_name", "last_name")
+        labels = {
+            "email": "Email",
+            "company_name": "Компанія / Магазин",
+            "phone": "Телефон",
+            "first_name": "Ім’я",
+            "last_name": "Прізвище",
         }
 
 class AddressForm(forms.ModelForm):

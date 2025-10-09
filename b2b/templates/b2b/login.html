@@ -1,10 +1,28 @@
 {% extends "b2b/base.html" %}
+{% load form_extras %}
+{% block title %}Вхід — Herabuna B2B{% endblock %}
 {% block content %}
-<h2>Вхід для дилерів</h2>
-<form method="post" action="{% url 'b2b:login' %}">{% csrf_token %}
-  {{ form.as_p }}
-  {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
-  <button class="btn" type="submit">Увійти</button>
-</form>
-<p>Немає акаунта? <a href="{% url 'b2b:signup' %}">Реєстрація</a></p>
+<div class="row justify-content-center">
+  <div class="col-12 col-md-6 col-lg-4">
+    <h1 class="h4 mb-3 text-center">Вхід</h1>
+    <form method="post" class="card p-3">
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+      {% endif %}
+      <div class="mb-3">
+        <label class="form-label">Логін</label>
+        {{ form.username|add_class:"form-control" }}
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Пароль</label>
+        {{ form.password|add_class:"form-control" }}
+      </div>
+      <button class="btn btn-primary w-100">Увійти</button>
+    </form>
+    <p class="text-center mt-3">
+      Немає акаунта? <a href="{% url 'b2b:signup' %}">Зареєструватися</a>
+    </p>
+  </div>
+</div>
 {% endblock %}

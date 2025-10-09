@@ -136,64 +136,68 @@ def _windowed_range(page_obj, width=2):
 @login_required
 def product_list(request):
     """
-    Catalog with search + filters (category, brand) and sorting.
-    Dealers can add to cart; staff can switch row into inline edit mode.
+    Catalog with search (name + sku), filters (category, brand) and sorting.
+    Default sorting: in-stock first (stock_desc).
     """
-    q = request.GET.get("q", "").strip()
-    cat = request.GET.get("cat")
+    q = (request.GET.get("q") or "").strip()
+    cat = request.GET.get("category") or request.GET.get("cat")
     brand = request.GET.get("brand")
-    sort = request.GET.get("sort", "").strip()  # price_asc, price_desc, stock_asc, stock_desc
+    sort = (request.GET.get("sort") or "stock_desc").strip()
 
-    products = Product.objects.select_related("brand").prefetch_related("categories").all()
+    qs = Product.objects.select_related("brand").prefetch_related("categories").all()
 
-    q = request.GET.get("q", "").strip()
     if q:
-        products = products.filter(Q(name__icontains=q) | Q(sku__icontains=q))
+        qs = qs.filter(Q(name__icontains=q) | Q(sku__icontains=q))
 
-    cat = request.GET.get("category") or request.GET.get("cat")  # підтримуємо стару назву
     if cat:
-        products = products.filter(categories__id=cat)
+        qs = qs.filter(categories__id=cat)
 
-    brand = request.GET.get("brand")
     if brand:
-        products = products.filter(brand_id=brand)
+        qs = qs.filter(brand_id=brand)
 
-    sort = request.GET.get("sort", "")
+    # Sorting options
     if sort == "price_asc":
-        products = products.order_by("wholesale_price", "name")
+        qs = qs.order_by("wholesale_price", "name")
     elif sort == "price_desc":
-        products = products.order_by("-wholesale_price", "name")
-    elif sort == "stock_desc":
-        products = products.order_by("-stock_qty", "name")
+        qs = qs.order_by("-wholesale_price", "name")
     elif sort == "stock_asc":
-        products = products.order_by("stock_qty", "name")
+        qs = qs.order_by("stock_qty", "name")
+    elif sort == "name_asc":
+        qs = qs.order_by("name")
+    elif sort == "name_desc":
+        qs = qs.order_by("-name")
+    elif sort == "sku_asc":
+        qs = qs.order_by("sku")
+    elif sort == "sku_desc":
+        qs = qs.order_by("-sku")
+    elif sort == "brand_asc":
+        qs = qs.order_by("brand__name", "name")
+    elif sort == "brand_desc":
+        qs = qs.order_by("-brand__name", "name")
     else:
-        products = products.order_by("name")
+        # stock_desc (default)
+        qs = qs.order_by("-stock_qty", "name")
 
-    # --- pagination ---
-    per_page = 24
-    paginator = Paginator(products, per_page)
+    paginator = Paginator(qs, 24)
     page_number = request.GET.get("page")
     page_obj = paginator.get_page(page_number)
-    products_page = page_obj.object_list
 
     # keep current filters without 'page'
     qs_params = request.GET.copy()
     qs_params.pop("page", None)
-    qs = qs_params.urlencode()
+    qs_str = qs_params.urlencode()
 
     context = {
-        "products": products_page,
+        "products": page_obj.object_list,
         "categories": Category.objects.all(),
         "brands": Brand.objects.all(),
         "q": q,
         "selected_cat": int(cat) if cat else "",
         "selected_brand": int(brand) if brand else "",
         "sort": sort,
-
         "page_obj": page_obj,
         "page_numbers": _windowed_range(page_obj, width=2),
-        "qs": qs,
+        "qs": qs_str,
     }
     return render(request, "b2b/product_list.html", context)
 
