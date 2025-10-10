@@ -1,17 +1,50 @@
 {% extends "b2b/base.html" %}
+{% load form_extras %}
+{% block title %}Профіль — Herabuna B2B{% endblock %}
 {% block content %}
-<h2>Профіль</h2>
+<h1 class="h4 mb-3">Профіль</h1>
 
-<ul style="display:flex; gap:16px; list-style:none; padding:0; margin:0 0 12px 0;">
-  <li><strong>Облікові дані</strong></li>
-  <li><a href="{% url 'b2b:address_list' %}">Адреси доставки</a></li>
+<ul class="nav nav-tabs mb-3">
+  <li class="nav-item">
+    <a class="nav-link active" href="{% url 'b2b:profile' %}">Облікові дані</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" href="{% url 'b2b:address_list' %}">Адреси доставки</a>
+  </li>
 </ul>
 
-<form method="post">
+<form method="post" class="card p-3">
   {% csrf_token %}
-  <table>
-    {{ form.as_table }}
-  </table>
-  <button class="btn" type="submit">Зберегти</button>
+  {% if form.non_field_errors %}
+    <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+  {% endif %}
+
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label">Email</label>
+      {{ form.email|add_class:"form-control" }}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Телефон</label>
+      {{ form.phone|add_class:"form-control" }}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Ім’я</label>
+      {{ form.first_name|add_class:"form-control" }}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Прізвище</label>
+      {{ form.last_name|add_class:"form-control" }}
+    </div>
+    <div class="col-md-12">
+      <label class="form-label">Компанія / Магазин</label>
+      {{ form.company_name|add_class:"form-control" }}
+    </div>
+  </div>
+
+  <button class="btn btn-primary mt-3">Зберегти</button>
 </form>
+
+
+
 {% endblock %}

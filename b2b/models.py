@@ -88,6 +88,7 @@ class Product(models.Model):
     sku = models.CharField(max_length=64, unique=True)
     name = models.CharField(max_length=255)
     wholesale_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    cost_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # purchase cos
     retail_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     stock_qty = models.IntegerField(default=0)  # for simple products or aggregated for variable
     is_active = models.BooleanField(default=True)

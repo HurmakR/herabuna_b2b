@@ -1,173 +1,172 @@
 {% extends "b2b/base.html" %}
+{% load l10n %}
+{% block title %}Каталог — Herabuna B2B{% endblock %}
 {% block content %}
-<h2>Каталог</h2>
 
-{% if request.user.is_staff %}
-  <p><a class="btn" href="{% url 'b2b:orders_admin' %}">Управління замовленнями</a></p>
-{% endif %}
-
-<form method="get" style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; margin-bottom:12px;">
-  <div>
-    <label>Пошук</label><br>
-    <input type="text" name="q" value="{{ q }}" placeholder="Назва або SKU" style="min-width:260px">
+<form class="row g-2 align-items-end mb-3" method="get">
+  <div class="col-12 col-md-4">
+    <label class="form-label">Пошук</label>
+    <input type="text" name="q" class="form-control" value="{{ q }}" placeholder="Назва або SKU">
   </div>
-  <div>
-    <label>Категорія</label><br>
-    <select name="cat">
-      <option value="">-- всі --</option>
+
+  <div class="col-6 col-md-3">
+    <label class="form-label">Категорія</label>
+    <select name="category" class="form-select">
+      <option value="">Усі</option>
       {% for c in categories %}
-        <option value="{{ c.id }}" {% if selected_cat == c.id %}selected{% endif %}>{{ c.name }}</option>
+        <option value="{{ c.id }}" {% if request.GET.category|default:'' == c.id|stringformat:'s' %}selected{% endif %}>{{ c.name }}</option>
       {% endfor %}
     </select>
   </div>
-  <div>
-    <label>Бренд</label><br>
-    <select name="brand">
-      <option value="">-- всі --</option>
+
+  <div class="col-6 col-md-3">
+    <label class="form-label">Бренд</label>
+    <select name="brand" class="form-select">
+      <option value="">Усі</option>
       {% for b in brands %}
-        <option value="{{ b.id }}" {% if selected_brand == b.id %}selected{% endif %}>{{ b.name }}</option>
+        <option value="{{ b.id }}" {% if request.GET.brand|default:'' == b.id|stringformat:'s' %}selected{% endif %}>{{ b.name }}</option>
       {% endfor %}
     </select>
   </div>
-  <div>
-    <label>Сортування</label><br>
-    <select name="sort">
-      <option value="">За назвою</option>
+
+  <div class="col-12 col-md-2">
+    <label class="form-label">Сортування</label>
+    <select name="sort" class="form-select">
+      <option value="stock_desc" {% if sort == 'stock_desc' or not sort %}selected{% endif %}>Спочатку в наявності</option>
+      <option value="stock_asc"  {% if sort == 'stock_asc' %}selected{% endif %}>Наявність ↑</option>
       <option value="price_asc"  {% if sort == 'price_asc' %}selected{% endif %}>Ціна ↑</option>
       <option value="price_desc" {% if sort == 'price_desc' %}selected{% endif %}>Ціна ↓</option>
-      <option value="stock_asc"  {% if sort == 'stock_asc' %}selected{% endif %}>Наявність ↑</option>
-      <option value="stock_desc" {% if sort == 'stock_desc' %}selected{% endif %}>Наявність ↓</option>
+      <option value="name_asc"   {% if sort == 'name_asc' %}selected{% endif %}>Назва A→Z</option>
+      <option value="name_desc"  {% if sort == 'name_desc' %}selected{% endif %}>Назва Z→A</option>
+      <option value="sku_asc"    {% if sort == 'sku_asc' %}selected{% endif %}>SKU ↑</option>
+      <option value="sku_desc"   {% if sort == 'sku_desc' %}selected{% endif %}>SKU ↓</option>
+      <option value="brand_asc"  {% if sort == 'brand_asc' %}selected{% endif %}>Бренд A→Z</option>
+      <option value="brand_desc" {% if sort == 'brand_desc' %}selected{% endif %}>Бренд Z→A</option>
     </select>
   </div>
-  <div>
-    <button class="btn" type="submit">Фільтрувати</button>
-    <a class="btn" href="{% url 'b2b:product_list' %}">Скинути</a>
+
+  <div class="col-6 col-md-2">
+    <button class="btn btn-primary w-100">Фільтрувати</button>
+  </div>
+  <div class="col-6 col-md-2">
+    <a href="{% url 'b2b:product_list' %}" class="btn btn-outline-secondary w-100">Скинути</a>
   </div>
 </form>
 
-<table>
-  <tr><th>Фото</th><th>SKU</th><th>Назва</th><th>Ціна гурт, грн</th><th>Наявність</th><th></th></tr>
+<div class="row g-3">
   {% for p in products %}
-  <tr>
-    <td style="width:110px;">
+  <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+    <div class="card h-100">
       {% if p.main_image_url %}
-        <a href="{% url 'b2b:product_detail' p.id %}"><img src="{{ p.main_image_url }}" alt="" style="height:100px;object-fit:contain"></a>
+        <img src="{{ p.main_image_url }}" class="card-img-top"
+             alt="{{ p.name }}" style="height:240px;object-fit:contain">
       {% endif %}
-    </td>
-    <td>{{ p.sku }}</td>
-    <td>
-      <a href="{% url 'b2b:product_detail' p.id %}">{{ p.name_with_weight }}</a>
-      {% if p.categories.all %}
-        <div style="font-size:12px;color:#666">
-          {% for c in p.categories.all %} {{ c.name }}{% if not forloop.last %},{% endif %}{% endfor %}
+      <div class="card-body d-flex flex-column">
+        <h6 class="card-title mb-1">
+          <a href="{% url 'b2b:product_detail' p.id %}" class="text-decoration-none">{{ p.name_with_weight }}</a>
+        </h6>
+        <div class="small text-muted mb-2">SKU: {{ p.sku }}</div>
+        <div class="mb-2">
+          {% if p.brand %}<span class="badge bg-secondary">{{ p.brand.name }}</span>{% endif %}
+          {% for c in p.categories.all %}
+            <span class="badge bg-light text-dark border">{{ c.name }}</span>
+          {% endfor %}
         </div>
-      {% endif %}
-      {% if p.brand %}<div style="font-size:12px;color:#666">Бренд: {{ p.brand.name }}</div>{% endif %}
-    </td>
 
-    {% if request.user.is_staff %}
-      {# ---- ADMIN ROW (single form) ---- #}
-      <td class="right">
-        <span class="view">{{ p.wholesale_price }}</span>
-        <input class="edit" style="display:none; width:90px; text-align:right"
-               type="number" step="0.01" name="wholesale_price" value="{{ p.wholesale_price }}"
-               form="edit-form-{{ p.id }}">
-      </td>
-      <td class="right">
-        <span class="view">{{ p.stock_qty }}</span>
-        <input class="edit" style="display:none; width:70px; text-align:right"
-               type="number" name="stock_qty" value="{{ p.stock_qty }}"
-               form="edit-form-{{ p.id }}">
-      </td>
-      <td>
-        <div class="view">
-          <label style="font-size:12px;margin-right:8px;">
-            <input type="checkbox" disabled {% if p.is_active %}checked{% endif %}> активний
-          </label>
-          <button class="btn row-edit" data-id="{{ p.id }}">Редагувати</button>
-        </div>
-        <form id="edit-form-{{ p.id }}" method="post" action="{% url 'b2b:product_update_inline' p.id %}" class="edit" style="display:none; gap:6px; align-items:center;">
-          {% csrf_token %}
-          <input type="hidden" name="next" value="{{ request.get_full_path }}">
-          <label style="font-size:12px;margin-right:8px;">
-            <input type="checkbox" name="is_active" {% if p.is_active %}checked{% endif %}> активний
-          </label>
-          <button class="btn" type="submit">Зберегти</button>
-          <button class="btn row-cancel" type="button" data-id="{{ p.id }}">Скасувати</button>
-        </form>
-      </td>
-    {% else %}
-      {# ---- DEALER ROW ---- #}
-      <td class="right">{{ p.wholesale_price }}</td>
-      <td class="right">{{ p.stock_qty }}</td>
-      <td>
-        {% if p.variants.all %}
-          <a class="btn" href="{% url 'b2b:product_detail' p.id %}?next={{ request.get_full_path|urlencode }}">Обрати опції</a>
-        {% else %}
-          {% if p.stock_qty|default:0 > 0 %}
-            <form method="post" action="{% url 'b2b:add_to_cart' p.id %}" class="qtyform" style="display:flex;gap:6px;align-items:center;">
-              {% csrf_token %}
-              <input type="hidden" name="next" value="{{ request.get_full_path }}">
-              <div class="qtybox" style="display:flex;align-items:center;border:1px solid #ccc;border-radius:6px;overflow:hidden;">
-                <button type="button" class="qminus" style="padding:6px 10px;border:none;background:#eee">−</button>
-                <input type="number" name="qty" value="1" min="1" max="{{ p.stock_qty }}" style="width:56px;text-align:center;border:none">
-                <button type="button" class="qplus" style="padding:6px 10px;border:none;background:#eee">+</button>
+        <div class="mt-auto">
+          {% if request.user.is_staff %}
+          <div class="small text-muted mb-2">
+            Залишок: <strong>{{ p.stock_qty|default_if_none:0 }}</strong> шт
+          </div>
+
+          <form method="post" action="{% url 'b2b:product_update_inline' p.id %}">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+
+            <div class="row g-2">
+              <div class="col-12 col-sm-6">
+                <label class="form-label small text-muted">Ціна (гурт), грн</label>
+                <input type="number" step="0.01" name="wholesale_price"
+                       class="form-control form-control-sm"
+                       value="{{ p.wholesale_price|default_if_none:0|unlocalize }}">
               </div>
-              <button class="btn" type="submit">Додати</button>
-            </form>
+              <div class="col-12 col-sm-6">
+                <label class="form-label small text-muted">Вхідна ціна, грн</label>
+                <input type="number" step="0.01" name="cost_price"
+                       class="form-control form-control-sm"
+                       value="{{ p.cost_price|default_if_none:0|unlocalize }}">
+              </div>
+              <div class="col-12 col-sm-6">
+                <label class="form-label small text-muted">Залишок, шт</label>
+                <input type="number" step="1" name="stock_qty"
+                       class="form-control form-control-sm"
+                       value="{{ p.stock_qty|default_if_none:0 }}">
+              </div>
+              <div class="col-12 col-sm-6 d-flex align-items-center gap-2 mt-1">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" name="is_active" id="a{{ p.id }}" {% if p.is_active %}checked{% endif %}>
+                  <label class="form-check-label small" for="a{{ p.id }}">активний</label>
+                </div>
+              </div>
+              <div class="col-12 mt-1">
+                <button class="btn btn-outline-primary btn-sm w-100">Зберегти</button>
+              </div>
+            </div>
+          </form>
           {% else %}
-            <span style="color:#888">Немає в наявності</span>
-          {% endif %}
-        {% endif %}
-      </td>
-    {% endif %}
-  </tr>
-  {% empty %}
-  <tr><td colspan="6">Нічого не знайдено.</td></tr>
-  {% endfor %}
-</table>
+            <div class="mb-1">
+              <span class="small text-muted">Ціна:</span>
+              <strong>{{ p.wholesale_price|default_if_none:0 }}</strong>
+              <span class="small text-muted">грн</span>
+            </div>
 
-{% if not request.user.is_staff %}
-<script>
-document.querySelectorAll('.qtyform').forEach(function(form) {
-  const minus = form.querySelector('.qminus');
-  const plus = form.querySelector('.qplus');
-  const input = form.querySelector('input[name="qty"]');
-  const max = parseInt(input.getAttribute('max') || '999999', 10);
-  if (minus && plus && input) {
-    minus.addEventListener('click', function() {
-      const v = Math.max(1, parseInt(input.value || '1', 10) - 1);
-      input.value = v;
-    });
-    plus.addEventListener('click', function() {
-      const v = Math.min(max, Math.max(1, parseInt(input.value || '1', 10) + 1));
-      input.value = v;
-    });
-    input.addEventListener('input', function() {
-      let v = parseInt(input.value || '1', 10);
-      if (isNaN(v) || v < 1) v = 1;
-      if (v > max) v = max;
-      input.value = v;
-    });
-  }
-});
-</script>
-{% else %}
-<script>
-document.querySelectorAll('.row-edit').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const tr = btn.closest('tr');
-    tr.querySelectorAll('.view').forEach(el => el.style.display = 'none');
-    tr.querySelectorAll('.edit').forEach(el => el.style.display = (el.tagName === 'FORM' ? 'flex' : 'inline-block'));
-  });
-});
-document.querySelectorAll('.row-cancel').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const tr = btn.closest('tr');
-    tr.querySelectorAll('.edit').forEach(el => el.style.display = 'none');
-    tr.querySelectorAll('.view').forEach(el => el.style.display = '');
-  });
-});
-</script>
+            {% if p.stock_qty|default_if_none:0 > 0 %}
+              <div class="mb-2 small text-muted">В наявності: <strong>{{ p.stock_qty }}</strong> шт</div>
+              <form method="post" action="{% url 'b2b:add_to_cart' p.id %}" class="d-flex align-items-center gap-2">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <div class="input-group w-auto" data-stepper>
+                  <button class="btn btn-outline-secondary btn-sm" type="button" data-stepper-btn="minus">−</button>
+                  <input class="form-control form-control-sm text-center" type="number" name="qty" value="1"
+                         min="1" max="{{ p.stock_qty }}" step="1" style="width:70px">
+                  <button class="btn btn-outline-secondary btn-sm" type="button" data-stepper-btn="plus">+</button>
+                </div>
+                <button class="btn btn-primary btn-sm">Додати</button>
+              </form>
+            {% else %}
+              <span class="badge bg-secondary">Немає в наявності</span>
+            {% endif %}
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% empty %}
+    <div class="col-12">
+      <div class="alert alert-info">Нічого не знайдено.</div>
+    </div>
+  {% endfor %}
+</div>
+
+{% if page_obj.has_other_pages %}
+<nav aria-label="Пагінація" class="mt-4">
+  <ul class="pagination justify-content-center">
+    <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}">
+      <a class="page-link" href="?{{ qs }}{% if page_obj.has_previous %}&page={{ page_obj.previous_page_number }}{% endif %}" aria-label="Previous">&laquo;</a>
+    </li>
+    {% for n in page_numbers %}
+      {% if n %}
+        <li class="page-item {% if page_obj.number == n %}active{% endif %}">
+          <a class="page-link" href="?{{ qs }}&page={{ n }}">{{ n }}</a>
+        </li>
+      {% else %}
+        <li class="page-item disabled"><span class="page-link">…</span></li>
+      {% endif %}
+    {% endfor %}
+    <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}">
+      <a class="page-link" href="?{{ qs }}{% if page_obj.has_next %}&page={{ page_obj.next_page_number }}{% endif %}" aria-label="Next">&raquo;</a>
+    </li>
+  </ul>
+</nav>
 {% endif %}
 {% endblock %}

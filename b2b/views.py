@@ -13,7 +13,8 @@ from django.views.decorators.http import require_http_methods
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
 from .services import np_client
-
+from django.core.paginator import Paginator
+from urllib.parse import urlencode
 
 try:
     from weasyprint import HTML
@@ -41,14 +42,35 @@ def signup(request):
         form = DealerSignUpForm(request.POST)
         if form.is_valid():
             user = form.save(commit=False)
-            user.is_active = True  # set False to require admin approval
+            # Нові дилери чекають підтвердження адміном
+            user.is_active = False
             user.is_dealer = True
             user.save()
-            login(request, user)
-            return redirect("b2b:dashboard")
+
+            # Сповістити адміна (не критично, fail_silently)
+            admin_email = getattr(settings, "ORDER_NOTIFY_EMAIL", "")
+            if admin_email:
+                try:
+                    send_mail(
+                        subject="Нова реєстрація дилера",
+                        message=f"Користувач {user.username} ({user.email}) зареєструвався.",
+                        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+                        recipient_list=[admin_email],
+                        fail_silently=True,
+                    )
+                except Exception:
+                    pass
+
+            messages.info(
+                request,
+                "Реєстрація надіслана на модерацію. Ви отримаєте сповіщення після підтвердження."
+            )
+            return redirect("b2b:login")
+        # не валідна форма — показуємо з помилками
+        return render(request, "b2b/signup.html", {"form": form})
     else:
         form = DealerSignUpForm()
-    return render(request, "b2b/signup.html", {"form": form})
+        return render(request, "b2b/signup.html", {"form": form})
 
 
 @login_required
@@ -119,53 +141,86 @@ def address_delete(request, pk: int):
     messages.info(request, "Адресу видалено.")
     return redirect("b2b:address_list")
 
+def _windowed_range(page_obj, width=2):
+    cur = page_obj.number
+    total = page_obj.paginator.num_pages
+    start = max(1, cur - width)
+    end = min(total, cur + width)
+    pages = []
+    if start > 1:
+        pages.extend([1, None])  # None = ellipsis
+    pages.extend(range(start, end + 1))
+    if end < total:
+        pages.extend([None, total])
+    return pages
 
 @login_required
 def product_list(request):
     """
-    Catalog with search + filters (category, brand) and sorting.
-    Dealers can add to cart; staff can switch row into inline edit mode.
+    Catalog with search (name + sku), filters (category, brand) and sorting.
+    Default sorting: in-stock first (stock_desc).
     """
-    q = request.GET.get("q", "").strip()
-    cat = request.GET.get("cat")
+    q = (request.GET.get("q") or "").strip()
+    cat = request.GET.get("category") or request.GET.get("cat")
     brand = request.GET.get("brand")
-    sort = request.GET.get("sort", "").strip()  # price_asc, price_desc, stock_asc, stock_desc
+    sort = (request.GET.get("sort") or "stock_desc").strip()
 
-    products = Product.objects.all() if request.user.is_staff else Product.objects.filter(is_active=True)
+    qs = Product.objects.select_related("brand").prefetch_related("categories").all()
 
     if q:
-        products = products.filter(Q(name__icontains=q) | Q(sku__icontains=q))
-    if cat and cat.isdigit():
-        products = products.filter(categories__id=int(cat))
-    if brand and brand.isdigit():
-        products = products.filter(brand_id=int(brand))
+        qs = qs.filter(Q(name__icontains=q) | Q(sku__icontains=q))
 
-    # Sorting
+    if cat:
+        qs = qs.filter(categories__id=cat)
+
+    if brand:
+        qs = qs.filter(brand_id=brand)
+
+    # Sorting options
     if sort == "price_asc":
-        products = products.order_by("wholesale_price", "name")
+        qs = qs.order_by("wholesale_price", "name")
     elif sort == "price_desc":
-        products = products.order_by("-wholesale_price", "name")
+        qs = qs.order_by("-wholesale_price", "name")
     elif sort == "stock_asc":
-        products = products.order_by("stock_qty", "name")
-    elif sort == "stock_desc":
-        products = products.order_by("-stock_qty", "name")
+        qs = qs.order_by("stock_qty", "name")
+    elif sort == "name_asc":
+        qs = qs.order_by("name")
+    elif sort == "name_desc":
+        qs = qs.order_by("-name")
+    elif sort == "sku_asc":
+        qs = qs.order_by("sku")
+    elif sort == "sku_desc":
+        qs = qs.order_by("-sku")
+    elif sort == "brand_asc":
+        qs = qs.order_by("brand__name", "name")
+    elif sort == "brand_desc":
+        qs = qs.order_by("-brand__name", "name")
     else:
-        products = products.order_by("name")
+        # stock_desc (default)
+        qs = qs.order_by("-stock_qty", "name")
 
-    products = products.distinct()
-    categories = Category.objects.order_by("name")
-    brands = Brand.objects.order_by("name")
+    paginator = Paginator(qs, 24)
+    page_number = request.GET.get("page")
+    page_obj = paginator.get_page(page_number)
 
-    ctx = {
-        "products": products,
+    # keep current filters without 'page'
+    qs_params = request.GET.copy()
+    qs_params.pop("page", None)
+    qs_str = qs_params.urlencode()
+
+    context = {
+        "products": page_obj.object_list,
+        "categories": Category.objects.all(),
+        "brands": Brand.objects.all(),
         "q": q,
-        "categories": categories,
-        "brands": brands,
-        "selected_cat": int(cat) if (cat and cat.isdigit()) else None,
-        "selected_brand": int(brand) if (brand and brand.isdigit()) else None,
+        "selected_cat": int(cat) if cat else "",
+        "selected_brand": int(brand) if brand else "",
         "sort": sort,
+        "page_obj": page_obj,
+        "page_numbers": _windowed_range(page_obj, width=2),
+        "qs": qs_str,
     }
-    return render(request, "b2b/product_list.html", ctx)
+    return render(request, "b2b/product_list.html", context)
 
 
 @login_required
@@ -527,20 +582,28 @@ def order_admin_action(request, order_id: int, action: str):
 @user_passes_test(_is_staff)
 @require_http_methods(["POST"])
 def product_update_inline(request, product_id: int):
-    """Staff inline update for price/stock/active from catalog list."""
+    """Staff inline update for price/stock/active/cost from catalog list."""
     p = get_object_or_404(Product, id=product_id)
+    # Wholesale selling price
     try:
         p.wholesale_price = Decimal(request.POST.get("wholesale_price", p.wholesale_price))
     except Exception:
         pass
+    # Purchase cost price
+    try:
+        p.cost_price = Decimal(request.POST.get("cost_price", p.cost_price))
+    except Exception:
+        pass
+    # Stock
     try:
         p.stock_qty = int(request.POST.get("stock_qty", p.stock_qty))
     except Exception:
         pass
     p.is_active = bool(request.POST.get("is_active"))
-    p.save(update_fields=["wholesale_price", "stock_qty", "is_active"])
+    p.save(update_fields=["wholesale_price", "cost_price", "stock_qty", "is_active"])
     messages.success(request, f"Збережено: {p.sku}")
     return redirect(_safe_next_url(request))
+
 
 
 @user_passes_test(_is_staff)
@@ -758,3 +821,27 @@ def order_delete(request, order_id: int):
     order.delete()
     messages.info(request, "Замовлення видалено.")
     return redirect("b2b:dashboard")
+
+def _bootstrapize_form(form):
+    """Add Bootstrap classes to form fields (text/select vs checkbox)."""
+    for name, field in form.fields.items():
+        w = field.widget
+        klass = w.attrs.get("class", "")
+        if getattr(w, "input_type", "") == "checkbox":
+            w.attrs["class"] = (klass + " form-check-input").strip()
+        else:
+            # text, email, number, select, textarea
+            w.attrs["class"] = (klass + " form-control").strip()
+
+@login_required
+def profile(request):
+    if request.method == "POST":
+        form = ProfileForm(request.POST, instance=request.user)
+    else:
+        form = ProfileForm(instance=request.user)
+    _bootstrapize_form(form)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Профіль збережено.")
+        return redirect("b2b:profile")
+    return render(request, "b2b/profile.html", {"form": form})
