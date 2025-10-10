@@ -42,12 +42,15 @@ def signup(request):
         form = DealerSignUpForm(request.POST)
         if form.is_valid():
             user = form.save(commit=False)
-            user.is_active = True  # set False to require admin approval
+            # Нові дилери чекають підтвердження адміном
+            user.is_active = False
             user.is_dealer = True
             user.save()
-            try:
-                admin_email = getattr(settings, "ORDER_NOTIFY_EMAIL", None)
-                if admin_email:
+
+            # Сповістити адміна (не критично, fail_silently)
+            admin_email = getattr(settings, "ORDER_NOTIFY_EMAIL", "")
+            if admin_email:
+                try:
                     send_mail(
                         subject="Нова реєстрація дилера",
                         message=f"Користувач {user.username} ({user.email}) зареєструвався.",
@@ -55,13 +58,19 @@ def signup(request):
                         recipient_list=[admin_email],
                         fail_silently=True,
                     )
-            except Exception:
-                pass
-            login(request, user)
-            return redirect("b2b:dashboard")
+                except Exception:
+                    pass
+
+            messages.info(
+                request,
+                "Реєстрація надіслана на модерацію. Ви отримаєте сповіщення після підтвердження."
+            )
+            return redirect("b2b:login")
+        # не валідна форма — показуємо з помилками
+        return render(request, "b2b/signup.html", {"form": form})
     else:
         form = DealerSignUpForm()
-    return render(request, "b2b/signup.html", {"form": form})
+        return render(request, "b2b/signup.html", {"form": form})
 
 
 @login_required
@@ -573,20 +582,28 @@ def order_admin_action(request, order_id: int, action: str):
 @user_passes_test(_is_staff)
 @require_http_methods(["POST"])
 def product_update_inline(request, product_id: int):
-    """Staff inline update for price/stock/active from catalog list."""
+    """Staff inline update for price/stock/active/cost from catalog list."""
     p = get_object_or_404(Product, id=product_id)
+    # Wholesale selling price
     try:
         p.wholesale_price = Decimal(request.POST.get("wholesale_price", p.wholesale_price))
     except Exception:
         pass
+    # Purchase cost price
+    try:
+        p.cost_price = Decimal(request.POST.get("cost_price", p.cost_price))
+    except Exception:
+        pass
+    # Stock
     try:
         p.stock_qty = int(request.POST.get("stock_qty", p.stock_qty))
     except Exception:
         pass
     p.is_active = bool(request.POST.get("is_active"))
-    p.save(update_fields=["wholesale_price", "stock_qty", "is_active"])
+    p.save(update_fields=["wholesale_price", "cost_price", "stock_qty", "is_active"])
     messages.success(request, f"Збережено: {p.sku}")
     return redirect(_safe_next_url(request))
+
 
 
 @user_passes_test(_is_staff)

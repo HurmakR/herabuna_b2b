@@ -24,32 +24,25 @@
 </head>
 <body>
   <div class="header">
-    <div class="logo">
-      <img src="{% static 'b2b/img/logo.png' %}" alt="Herabuna">
-    </div>
-    <div class="company">
-      <strong>Herabuna B2B</strong><br>
-      Рахунок № {{ order.id }} від {{ order.created_at|date:"d.m.Y" }}<br>
-      Статус: {{ order.get_status_display }}<br>
-      Email: {{ settings.DEFAULT_FROM_EMAIL|default:"" }}
+    <div>
+      <h1>Рахунок № {{ order.id }} від {{ order.created_at|date:"j E Y" }}</h1>
+      <p></p>
+      <div class="small"><strong> Постачальник: ФОП Гурмак Р. Д.</strong></div>
+      <div class="small">ІПН 2899103773</div>
+      <div class="small">IBAN: UA743220010000026006350069422</div>
     </div>
   </div>
 
   <table class="noborder" style="margin-bottom:8px;">
     <tr>
-      <td style="width:55%; padding-right:16px;">
-        <strong>Платник</strong><br>
-        {{ order.dealer.username }}{% if order.dealer.company_name %}, {{ order.dealer.company_name }}{% endif %}<br>
-        {% if order.dealer.email %}{{ order.dealer.email }}<br>{% endif %}
-        {% if order.dealer.phone %}Тел.: {{ order.dealer.phone }}{% endif %}
-      </td>
       <td>
-        <strong>Доставка (Нова Пошта)</strong><br>
-        {{ order.shipping_city }}, {{ order.shipping_warehouse }}<br>
-        Одержувач: {{ order.shipping_recipient }} ({{ order.shipping_phone }})
+        <strong>
+        Одержувач: {% if order.dealer.company_name %}{{ order.dealer.company_name }}{% endif %}</strong><br>
+        {% if order.dealer.phone %}Тел.: {{ order.dealer.phone }}{% endif %}<br>
       </td>
     </tr>
   </table>
+
 
   <table>
     <tr>
