@@ -45,6 +45,18 @@ def signup(request):
             user.is_active = True  # set False to require admin approval
             user.is_dealer = True
             user.save()
+            try:
+                admin_email = getattr(settings, "ORDER_NOTIFY_EMAIL", None)
+                if admin_email:
+                    send_mail(
+                        subject="Нова реєстрація дилера",
+                        message=f"Користувач {user.username} ({user.email}) зареєструвався.",
+                        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+                        recipient_list=[admin_email],
+                        fail_silently=True,
+                    )
+            except Exception:
+                pass
             login(request, user)
             return redirect("b2b:dashboard")
     else:

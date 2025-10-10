@@ -88,3 +88,13 @@ NP_SENDER_REF = os.environ.get("NP_SENDER_REF")
 NP_SENDER_CONTACT_REF = os.environ.get("NP_SENDER_CONTACT_REF")
 NP_SENDER_WAREHOUSE_REF = os.environ.get("NP_SENDER_WAREHOUSE_REF")
 NP_SENDER_CITY_REF = os.environ.get("NP_SENDER_CITY_REF")
+
+EMAIL_BACKEND = os.environ.get("EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "True") == "True"
+EMAIL_USE_SSL = os.environ.get("EMAIL_USE_SSL", "False") == "True"
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "no-reply@example.com")
+ORDER_NOTIFY_EMAIL = os.environ.get("ORDER_NOTIFY_EMAIL", "")
