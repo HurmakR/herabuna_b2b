@@ -70,10 +70,17 @@
 </div>
 
 <p class="d-flex flex-wrap gap-2">
-  {% if order.status != 'draft' and order.status != 'cancelled' %}
-    <a class="btn btn-outline-primary" href="{% url 'b2b:invoice_pdf' order.id %}">Рахунок</a>
-    <a class="btn btn-outline-primary" href="{% url 'b2b:waybill_pdf' order.id %}">Накладна</a>
-  {% endif %}
+{% if order.status != 'draft' and order.status != 'cancelled' and order.status != 'submitted' %}
+  <div class="d-flex flex-wrap gap-2 my-2">
+    <a class="btn btn-outline-primary btn-sm" href="{% url 'b2b:invoice_print' order.id %}">Рахунок</a>
+    <a class="btn btn-outline-primary btn-sm" href="{% url 'b2b:waybill_print' order.id %}">Накладна</a>
+
+    {# для відвантажених: етикетка НП (залишаємо) #}
+    {% if order.status == 'shipped' and order.shipping_ttn %}
+      <a class="btn btn-outline-secondary btn-sm" href="{% url 'b2b:order_np_label' order.id %}">Етикетка 10×10</a>
+    {% endif %}
+  </div>
+{% endif %}
   {% if request.user.is_staff and order.status == 'shipped' and order.shipping_ttn %}
     <a class="btn btn-outline-secondary" href="{% url 'b2b:order_np_label' order.id %}">Етикетка 10×10</a>
   {% endif %}
