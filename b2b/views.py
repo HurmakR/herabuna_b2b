@@ -491,14 +491,13 @@ def order_admin_action(request, order_id: int, action: str):
         try:
             if order.dealer.email:
                 msg = EmailMessage(
-                    subject=f"Рахунок на оплату #{order.id}",
-                    body="Доброго дня! Надсилаємо рахунок на оплату. Будь ласка, оплатіть для подальшого відвантаження.",
+                    subject=f"Замовлення #{order.id} підтверджене.",
+                    body=f"Доброго дня! \n Ваше замовлення {order.id} підтверджене та очікує на оплату."
+                         f" \n Будь ласка, оплатіть замовлення для подальшого відвантаження. \n"
+                         f" \n https://herabuna.com.ua/orders/{order.id}/invoice/",
                     from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
                     to=[order.dealer.email],
                 )
-                pdf = _render_invoice_pdf_bytes(request, order)
-                if pdf:
-                    msg.attach(f"invoice_{order.id}.pdf", pdf, "application/pdf")
                 msg.send(fail_silently=True)
         except Exception:
             pass

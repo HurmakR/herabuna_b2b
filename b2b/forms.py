@@ -1,48 +1,91 @@
+# b2b/forms.py
 from django import forms
-from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
-from .models import Dealer, Address
-from django.contrib.auth import authenticate, get_user_model
-import re
+from django.core.validators import RegexValidator
+from django.contrib.auth import get_user_model
+from .models import Address
+from django.contrib.auth.forms import AuthenticationForm
 
-PHONE_RE = re.compile(r"^380\d{9}$")
+Dealer = get_user_model()
 
-def _clean_phone(v):
-    return (v or "").replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+# 380 + 9 цифр
+phone_validator = RegexValidator(
+    regex=r"^380\d{9}$",
+    message="Введіть номер у форматі 380XXXXXXXXX.",
+)
 
-class DealerSignUpForm(UserCreationForm):
-    email = forms.EmailField(label="Email", required=True)
-    first_name = forms.CharField(label="Ім’я", required=False, max_length=150)
-    last_name = forms.CharField(label="Прізвище", required=False, max_length=150)
-    company_name = forms.CharField(label="Компанія / Магазин", required=False, max_length=255)
-    phone = forms.CharField(label="Телефон", required=False, max_length=20)
-    telegram_chat_id = forms.CharField(label="Telegram chat ID", required=False, max_length=64)
-
-    class Meta(UserCreationForm.Meta):
-        model = Dealer
-        fields = ("username", "email", "first_name", "last_name",
-                  "company_name", "phone", "telegram_chat_id")
-
-    def clean_phone(self):
-        phone = _clean_phone(self.cleaned_data.get("phone"))
-        if phone and not PHONE_RE.match(phone):
-            raise forms.ValidationError("Введіть номер у форматі 380XXXXXXXXX.")
-        return phone
-
-
-class ProfileForm(forms.ModelForm):
+# -------- Signup --------
+class DealerSignUpForm(forms.ModelForm):
+    password1 = forms.CharField(label="Пароль", widget=forms.PasswordInput, min_length=8)
+    password2 = forms.CharField(label="Підтвердіть пароль", widget=forms.PasswordInput)
+    phone = forms.CharField(
+        label="Телефон",
+        max_length=12,
+        validators=[phone_validator],
+        help_text="Формат: 380XXXXXXXXX",
+        widget=forms.TextInput(attrs={
+            "placeholder": "380XXXXXXXXX",
+            "inputmode": "numeric",
+            "pattern": r"380\d{9}",
+        }),
+    )
     class Meta:
         model = Dealer
-        fields = ("email", "first_name", "last_name", "company_name", "phone", "telegram_chat_id")
+        fields = ["username", "email", "company_name", "phone", "first_name", "last_name"]
         labels = {
-            "email": "Email",
-            "first_name": "Ім’я",
-            "last_name": "Прізвище",
-            "company_name": "Компанія / Магазин",
-            "phone": "Телефон",
-            "telegram_chat_id": "Telegram chat ID",
+            "username": "Логін", "email": "Email",
+            "company_name": "Компанія / Магазин", "first_name": "Ім’я", "last_name": "Прізвище",
         }
 
+    def clean(self):
+        cleaned = super().clean()
+        p1, p2 = cleaned.get("password1"), cleaned.get("password2")
+        if p1 and p2 and p1 != p2:
+            self.add_error("password2", "Паролі не співпадають.")
+        return cleaned
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.set_password(self.cleaned_data["password1"])
+        if commit:
+            user.save()
+        return user
+
+
+# -------- Profile (редагування користувача) --------
+class ProfileForm(forms.ModelForm):
+    phone = forms.CharField(
+        label="Телефон",
+        max_length=12,
+        validators=[phone_validator],
+        widget=forms.TextInput(attrs={
+            "placeholder": "380XXXXXXXXX",
+            "inputmode": "numeric",
+            "pattern": r"380\d{9}",
+        }),
+    )
+
+    class Meta:
+        model = Dealer
+        fields = ["first_name", "last_name", "company_name", "email", "phone"]
+        labels = {
+            "first_name": "Ім’я", "last_name": "Прізвище",
+            "company_name": "Компанія / Магазин", "email": "Email", "phone": "Телефон",
+        }
+
+
+# -------- Адреси доставки (Нова Пошта) --------
 class AddressForm(forms.ModelForm):
+    recipient_phone = forms.CharField(
+        label="Телефон отримувача",
+        max_length=12,
+        validators=[phone_validator],
+        widget=forms.TextInput(attrs={
+            "placeholder": "380XXXXXXXXX",
+            "inputmode": "numeric",
+            "pattern": r"380\d{9}",
+        }),
+    )
+
     class Meta:
         model = Address
         fields = [
@@ -53,60 +96,19 @@ class AddressForm(forms.ModelForm):
             "is_default",
         ]
         labels = {
-            "title": "Назва адреси (для себе)",
-            "city_name": "Місто",
-            "warehouse_name": "Відділення Нової Пошти",
-            "recipient_name": "Отримувач",
-            "recipient_phone": "Телефон отримувача",
+            "title": "Назва адреси",
+            "city_name": "Місто", "warehouse_name": "Відділення",
+            "recipient_name": "Отримувач", "recipient_phone": "Телефон отримувача",
             "is_default": "За замовчуванням",
         }
         widgets = {
-            "city_ref": forms.HiddenInput(),
-            "warehouse_ref": forms.HiddenInput(),
+            "city_name": forms.TextInput(attrs={"data-np-city": "1", "autocomplete": "off"}),
+            "warehouse_name": forms.TextInput(attrs={"data-np-warehouse": "1", "autocomplete": "off"}),
         }
 
-    def clean(self):
-        data = super().clean()
-        if not data.get("city_ref") or not data.get("warehouse_ref"):
-            raise forms.ValidationError("Оберіть місто та відділення зі списку підказок.")
 
-
-class UAAuthenticationForm(AuthenticationForm):
+class CustomAuthenticationForm(AuthenticationForm):
     error_messages = {
         "invalid_login": "Невірний логін або пароль.",
-        "inactive": "Ваш акаунт ще не активовано адміністратором. "
-                    "Після підтвердження ви зможете увійти.",
+        "inactive": "Ваш акаунт ще не активовано. Дочекайтеся підтвердження від адміністратора.",
     }
-
-    def clean(self):
-        username = self.cleaned_data.get("username")
-        password = self.cleaned_data.get("password")
-        User = get_user_model()
-
-        if not username or not password:
-            raise forms.ValidationError(self.error_messages["invalid_login"], code="invalid_login")
-
-        # 1) Звичайна автентифікація (для активних)
-        user = authenticate(self.request, username=username, password=password)
-        if user is not None:
-            self.user_cache = user
-            return self.cleaned_data
-
-        # 2) Перевіряємо кейс "правильний пароль, але неактивний"
-        #    authenticate() поверне None, тож шукаємо кандидата і перевіряємо пароль вручну
-        candidate = None
-        try:
-            if "@" in username:
-                candidate = User.objects.get(email__iexact=username)
-            else:
-                candidate = User.objects.get(username__iexact=username)
-        except User.DoesNotExist:
-            candidate = None
-
-        if candidate and candidate.check_password(password):
-            if candidate.is_active is False:
-                # Точкове повідомлення для неактивного акаунта
-                raise forms.ValidationError(self.error_messages["inactive"], code="inactive")
-
-        # Інакше — стандартна помилка
-        raise forms.ValidationError(self.error_messages["invalid_login"], code="invalid_login")

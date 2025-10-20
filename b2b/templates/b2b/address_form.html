@@ -1,49 +1,88 @@
 {% extends "b2b/base.html" %}
+{% load form_extras %}
+
 {% block title %}{% if is_edit %}Редагувати адресу{% else %}Нова адреса{% endif %} — Herabuna B2B{% endblock %}
+
 {% block content %}
 <h2 class="h4 mb-3">{% if is_edit %}Редагувати адресу{% else %}Нова адреса{% endif %}</h2>
 
 <form method="post" class="card p-3">
   {% csrf_token %}
 
+  {% if form.non_field_errors %}
+    <div class="alert alert-danger mb-3">
+      {{ form.non_field_errors }}
+    </div>
+  {% endif %}
+
   <div class="row g-3">
+
+    <!-- Назва (title) -->
     <div class="col-md-6">
-      <label class="form-label">Назва (мітка)</label>
-      <input type="text" name="title" class="form-control" value="{{ form.instance.title|default_if_none:'' }}" required>
+      <label class="form-label" for="id_title">Назва (мітка)</label>
+      {{ form.title|add_class:"form-control" }}
+      {% if form.title.errors %}<div class="invalid-feedback d-block">{{ form.title.errors|join:", " }}</div>{% endif %}
     </div>
 
-    <div class="col-md-6">
-      <div class="form-check mt-4 pt-2">
-        <input class="form-check-input" type="checkbox" name="is_default" id="isDefault" {% if form.instance.is_default %}checked{% endif %}>
-        <label class="form-check-label" for="isDefault">Використовувати як основну</label>
+    <!-- За замовчуванням -->
+    <div class="col-md-6 d-flex align-items-end">
+      <div class="form-check">
+        {{ form.is_default }}
+        <label class="form-check-label" for="id_is_default">Використовувати як основну</label>
       </div>
+      {% if form.is_default.errors %}<div class="invalid-feedback d-block">{{ form.is_default.errors|join:", " }}</div>{% endif %}
     </div>
 
+    <!-- Місто (НП) із datalist -->
     <div class="col-md-6">
       <label class="form-label">Місто (НП)</label>
-      <input type="text" id="city_search" class="form-control" placeholder="Почніть вводити місто" autocomplete="off"
-             value="{{ form.instance.city_name|default_if_none:'' }}" required list="city_list">
+      <input type="text"
+             id="city_search"
+             class="form-control"
+             placeholder="Почніть вводити місто"
+             autocomplete="off"
+             list="city_list"
+             value="{{ form.city_name.value|default_if_none:'' }}"
+             required>
       <datalist id="city_list"></datalist>
-      <input type="hidden" name="city_name" id="city_name" value="{{ form.instance.city_name|default_if_none:'' }}">
-      <input type="hidden" name="city_ref"  id="city_ref"  value="{{ form.instance.city_ref|default_if_none:'' }}">
+      <!-- приховані поля форми (щоб пройшла валідація та збереглись значення) -->
+      <input type="hidden" name="city_name" id="city_name" value="{{ form.city_name.value|default_if_none:'' }}">
+      <input type="hidden" name="city_ref"  id="city_ref"  value="{{ form.city_ref.value|default_if_none:'' }}">
+      {% if form.city_name.errors %}<div class="invalid-feedback d-block">{{ form.city_name.errors|join:", " }}</div>{% endif %}
+      {% if form.city_ref.errors %}<div class="invalid-feedback d-block">{{ form.city_ref.errors|join:", " }}</div>{% endif %}
     </div>
 
+    <!-- Відділення (НП) із datalist -->
     <div class="col-md-6">
       <label class="form-label">Відділення (НП)</label>
-      <input type="text" id="wh_search" class="form-control" placeholder="Введіть № або назву відділення" autocomplete="off"
-             value="{{ form.instance.warehouse_name|default_if_none:'' }}" required list="wh_list">
+      <input type="text"
+             id="wh_search"
+             class="form-control"
+             placeholder="Введіть № або назву відділення"
+             autocomplete="off"
+             list="wh_list"
+             value="{{ form.warehouse_name.value|default_if_none:'' }}"
+             required>
       <datalist id="wh_list"></datalist>
-      <input type="hidden" name="warehouse_name" id="warehouse_name" value="{{ form.instance.warehouse_name|default_if_none:'' }}">
-      <input type="hidden" name="warehouse_ref"  id="warehouse_ref"  value="{{ form.instance.warehouse_ref|default_if_none:'' }}">
+      <input type="hidden" name="warehouse_name" id="warehouse_name" value="{{ form.warehouse_name.value|default_if_none:'' }}">
+      <input type="hidden" name="warehouse_ref"  id="warehouse_ref"  value="{{ form.warehouse_ref.value|default_if_none:'' }}">
+      {% if form.warehouse_name.errors %}<div class="invalid-feedback d-block">{{ form.warehouse_name.errors|join:", " }}</div>{% endif %}
+      {% if form.warehouse_ref.errors %}<div class="invalid-feedback d-block">{{ form.warehouse_ref.errors|join:", " }}</div>{% endif %}
     </div>
 
+    <!-- Отримувач -->
     <div class="col-md-6">
-      <label class="form-label">Отримувач</label>
-      <input type="text" name="recipient_name" class="form-control" value="{{ form.instance.recipient_name|default_if_none:'' }}" required>
+      <label class="form-label" for="id_recipient_name">Отримувач</label>
+      {{ form.recipient_name|add_class:"form-control" }}
+      {% if form.recipient_name.errors %}<div class="invalid-feedback d-block">{{ form.recipient_name.errors|join:", " }}</div>{% endif %}
     </div>
+
+    <!-- Телефон отримувача з валідацією 380XXXXXXXXX -->
     <div class="col-md-6">
-      <label class="form-label">Телефон</label>
-      <input type="text" name="recipient_phone" class="form-control" value="{{ form.instance.recipient_phone|default_if_none:'' }}" required>
+      <label class="form-label" for="id_recipient_phone">Телефон</label>
+      {{ form.recipient_phone|add_class:"form-control" }}
+      {% if form.recipient_phone.errors %}<div class="invalid-feedback d-block">{{ form.recipient_phone.errors|join:", " }}</div>{% endif %}
+      <div class="form-text">Формат: 380XXXXXXXXX</div>
     </div>
   </div>
 
@@ -55,37 +94,44 @@
 
 {% block scripts %}
 <script>
-// Same AJAX helpers as before; minimal UI glue.
 const NP = { cities: new Map(), whs: new Map() };
+
 const cityInput = document.getElementById('city_search');
-const cityName = document.getElementById('city_name');
-const cityRef  = document.getElementById('city_ref');
-const cityList = document.getElementById('city_list');
+const cityName  = document.getElementById('city_name');
+const cityRef   = document.getElementById('city_ref');
+const cityList  = document.getElementById('city_list');
 
 const whInput = document.getElementById('wh_search');
 const whName  = document.getElementById('warehouse_name');
 const whRef   = document.getElementById('warehouse_ref');
 const whList  = document.getElementById('wh_list');
 
-function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); };}
+function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
 async function fetchJSON(url){ const r=await fetch(url,{headers:{"X-Requested-With":"XMLHttpRequest"}}); return r.ok? r.json(): {results:[]}; }
 
 const loadCities = debounce(async () => {
   const q = (cityInput.value||'').trim(); if (!q){ cityList.innerHTML=''; return; }
   const data = await fetchJSON(`{% url 'b2b:np_cities' %}?q=${encodeURIComponent(q)}`);
   NP.cities.clear(); cityList.innerHTML='';
-  (data.results||[]).forEach(row=>{ NP.cities.set(row.name,row.ref); const opt=document.createElement('option'); opt.value=row.name; cityList.appendChild(opt); });
+  (data.results||[]).forEach(row=>{
+    NP.cities.set(row.name,row.ref);
+    const opt=document.createElement('option'); opt.value=row.name; cityList.appendChild(opt);
+  });
 }, 250);
 
 cityInput.addEventListener('input', loadCities);
 cityInput.addEventListener('change', async () => {
   const name = cityInput.value.trim(); const ref = NP.cities.get(name) || '';
   cityName.value = name; cityRef.value = ref;
+
   whInput.value=''; whName.value=''; whRef.value=''; whList.innerHTML='';
   if (ref){
     const data = await fetchJSON(`{% url 'b2b:np_warehouses' %}?city_ref=${encodeURIComponent(ref)}`);
     NP.whs.clear(); whList.innerHTML='';
-    (data.results||[]).forEach(row=>{ NP.whs.set(row.name,row.ref); const opt=document.createElement('option'); opt.value=row.name; whList.appendChild(opt); });
+    (data.results||[]).forEach(row=>{
+      NP.whs.set(row.name,row.ref);
+      const opt=document.createElement('option'); opt.value=row.name; whList.appendChild(opt);
+    });
   }
 });
 
@@ -93,7 +139,10 @@ const loadWarehouses = debounce(async () => {
   const ref = cityRef.value; const q=(whInput.value||'').trim(); if(!ref) return;
   const data = await fetchJSON(`{% url 'b2b:np_warehouses' %}?city_ref=${encodeURIComponent(ref)}&q=${encodeURIComponent(q)}`);
   NP.whs.clear(); whList.innerHTML='';
-  (data.results||[]).forEach(row=>{ NP.whs.set(row.name,row.ref); const opt=document.createElement('option'); opt.value=row.name; whList.appendChild(opt); });
+  (data.results||[]).forEach(row=>{
+    NP.whs.set(row.name,row.ref);
+    const opt=document.createElement('option'); opt.value=row.name; whList.appendChild(opt);
+  });
 }, 250);
 
 whInput.addEventListener('input', loadWarehouses);
@@ -101,9 +150,6 @@ whInput.addEventListener('change', () => {
   const name = whInput.value.trim(); const ref = NP.whs.get(name) || '';
   whName.value=name; whRef.value=ref;
 });
-
-
 </script>
 {% endblock %}
 {% endblock %}
-

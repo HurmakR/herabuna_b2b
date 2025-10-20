@@ -4,13 +4,10 @@ register = template.Library()
 
 @register.filter(name="add_class")
 def add_class(field, css):
-    """
-    Return the field rendered with extra CSS classes.
-    Keeps existing classes on the widget.
-    """
+    # не ламаємо існуючі attrs, просто додаємо class
     attrs = field.field.widget.attrs.copy()
     existing = attrs.get("class", "")
-    attrs["class"] = (existing + " " + str(css)).strip()
+    attrs["class"] = (existing + " " + css).strip()
     return field.as_widget(attrs=attrs)
 
 @register.filter(name="attr")

@@ -16,7 +16,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'b2b',
+    'b2b.apps.B2BConfig',
 ]
 
 MIDDLEWARE = [
@@ -100,4 +100,4 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "no-reply@example.com"
 ORDER_NOTIFY_EMAIL = os.environ.get("ORDER_NOTIFY_EMAIL", "")
 
 AUTHENTICATION_BACKENDS = ["django.contrib.auth.backends.ModelBackend"]
-
+LOGIN_FORM_PATH = "b2b.forms.CustomAuthenticationForm"

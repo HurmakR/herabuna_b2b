@@ -1,48 +1,82 @@
 {% extends "b2b/base.html" %}
-{% load form_extras %}
+{% load form_extras %} {# з попереднього кроку: add_class/attr фільтри #}
 {% block title %}Реєстрація — Herabuna B2B{% endblock %}
+
 {% block content %}
 <div class="row justify-content-center">
   <div class="col-12 col-md-8 col-lg-6">
-    <h1 class="h4 mb-3 text-center">Реєстрація дилера</h1>
-    <form method="post" class="card p-3">
+    <h3 class="mb-3">Реєстрація дилера</h3>
+
+    {# Глобальні помилки форми #}
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger">
+        {% for e in form.non_field_errors %}<div>{{ e }}</div>{% endfor %}
+      </div>
+    {% endif %}
+
+    <form method="post" novalidate>
       {% csrf_token %}
-      {% if form.non_field_errors %}
-        <div class="alert alert-danger">{{ form.non_field_errors }}</div>
-      {% endif %}
+
+      {# username #}
+      <div class="mb-3">
+        <label class="form-label">{{ form.username.label }}</label>
+        {{ form.username|add_class:"form-control" }}
+        {% for e in form.username.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+      </div>
+
+      {# email #}
+      <div class="mb-3">
+        <label class="form-label">{{ form.email.label }}</label>
+        {{ form.email|add_class:"form-control" }}
+        {% for e in form.email.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+      </div>
+
+      {# company #}
+      <div class="mb-3">
+        <label class="form-label">{{ form.company_name.label }}</label>
+        {{ form.company_name|add_class:"form-control" }}
+        {% for e in form.company_name.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+      </div>
+
+      {# phone з нашою атрибутикою #}
+      <div class="mb-3">
+        <label class="form-label">{{ form.phone.label }}</label>
+        {{ form.phone|add_class:"form-control"|attr:"data-phone=1"|attr:"placeholder=380XXXXXXXXX" }}
+        {% if form.phone.help_text %}<div class="form-text">{{ form.phone.help_text }}</div>{% endif %}
+        {% for e in form.phone.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+      </div>
 
       <div class="row g-3">
         <div class="col-md-6">
-          <label class="form-label">Логін</label>
-          {{ form.username|add_class:"form-control" }}
+          <label class="form-label">{{ form.first_name.label }}</label>
+          {{ form.first_name|add_class:"form-control" }}
+          {% for e in form.first_name.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
         </div>
         <div class="col-md-6">
-          <label class="form-label">Email</label>
-          {{ form.email|add_class:"form-control" }}
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Компанія / Магазин</label>
-          {{ form.company_name|add_class:"form-control" }}
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Телефон</label>
-          {{ form.phone|add_class:"form-control" }}
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Пароль</label>
-          {{ form.password1|add_class:"form-control" }}
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Підтвердження пароля</label>
-          {{ form.password2|add_class:"form-control" }}
+          <label class="form-label">{{ form.last_name.label }}</label>
+          {{ form.last_name|add_class:"form-control" }}
+          {% for e in form.last_name.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
         </div>
       </div>
 
-      <button class="btn btn-primary w-100 mt-3">Зареєструватися</button>
+      <div class="row g-3 mt-1">
+        <div class="col-md-6">
+          <label class="form-label">{{ form.password1.label }}</label>
+          {{ form.password1|add_class:"form-control" }}
+          {% for e in form.password1.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">{{ form.password2.label }}</label>
+          {{ form.password2|add_class:"form-control" }}
+          {% for e in form.password2.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+        </div>
+      </div>
+
+      <div class="mt-4 d-grid gap-2 d-sm-flex justify-content-sm-end">
+        <a class="btn btn-outline-secondary" href="{% url 'b2b:login' %}">Увійти</a>
+        <button class="btn btn-primary" type="submit">Зареєструватися</button>
+      </div>
     </form>
-    <p class="text-center mt-3">
-      Уже маєте акаунт? <a href="{% url 'b2b:login' %}">Увійти</a>
-    </p>
   </div>
 </div>
 {% endblock %}
