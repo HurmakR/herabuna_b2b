@@ -74,4 +74,5 @@ urlpatterns = [
     path("reset/done/",
          auth_views.PasswordResetCompleteView.as_view(template_name="b2b/password_reset_complete.html"),
          name="password_reset_complete"),
+    #path("products/price.xlsx", views.price_export, name="price_export"),
 ]

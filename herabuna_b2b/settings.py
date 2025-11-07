@@ -17,6 +17,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'b2b.apps.B2BConfig',
+    'audit.apps.AuditConfig'
 ]
 
 MIDDLEWARE = [
