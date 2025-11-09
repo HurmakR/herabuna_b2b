@@ -224,6 +224,8 @@ class OrderItem(models.Model):
     qty = models.PositiveIntegerField(default=1)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     variant_attrs = models.JSONField(default=dict, blank=True)  # snapshot of selected options
+    cost_unit = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    cost_total = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
 
     class Meta:
         unique_together = ("order", "product", "variant")

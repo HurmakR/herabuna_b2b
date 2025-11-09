@@ -15,6 +15,7 @@ from django.views.decorators.http import require_GET
 from .services import np_client
 from django.core.paginator import Paginator
 from urllib.parse import urlencode
+from warehouse import services as wh
 
 try:
     from weasyprint import HTML
@@ -516,46 +517,66 @@ def order_admin_action(request, order_id: int, action: str):
             messages.error(request, "Скасовувати можна лише 'Надіслано' або 'Очікує оплату'.")
             return redirect("b2b:orders_admin")
 
-        # Restock items
-        for it in order.items.select_related("product", "variant"):
-            if it.variant:
-                it.variant.stock_qty += it.qty
-                it.variant.save(update_fields=["stock_qty"])
-            else:
-                it.product.stock_qty += it.qty
-                it.product.save(update_fields=["stock_qty"])
-            # Push to Woo best-effort
-            try:
-                client = woo_sync.WooClient()
+        # Return lots and sync aggregate stock (FIFO-aware)
+        try:
+            wh.cancel_order(order)  # puts back reserved lots, updates Product.stock_qty
+        except Exception as e:
+            messages.error(request, f"Помилка повернення товарів: {e}")
+            return redirect("b2b:orders_admin")
+
+        # Best-effort Woo stock sync
+        try:
+            client = woo_sync.WooClient()
+            for it in order.items.select_related("product", "variant"):
                 if it.variant and it.product.woo_id:
                     client.update_variation_stock(it.product.woo_id, it.variant.woo_variation_id, it.variant.stock_qty)
                 elif it.product.woo_id:
                     client.update_stock(it.product.woo_id, it.product.stock_qty)
-            except Exception:
-                pass
+        except Exception:
+            pass
 
         order.status = "cancelled"
         order.save(update_fields=["status"])
         messages.info(request, f"Замовлення #{order.id} скасовано. Товари повернуті на склад.")
         return redirect("b2b:orders_admin")
 
+
     elif action == "ship":
         if order.status != "pending_payment":
             messages.error(request, "Відвантажити можна лише замовлення, що очікує оплату.")
             return redirect("b2b:orders_admin")
 
-        # Create TTN (stub)
+        # Create TTN first (fail fast if NP rejects)
         try:
             ttn, doc_ref = np_api.create_ttn(order)
         except Exception as e:
             messages.error(request, f"Помилка створення ТТН: {e}")
             return redirect("b2b:orders_admin")
 
+        # Finalize lot movements (write-off) and sync aggregate stock
+        try:
+            wh.ship_order(order)  # consumes reserved lots, freezes COGS on items if not yet set
+        except Exception as e:
+            messages.error(request, f"Помилка списання партій: {e}")
+            return redirect("b2b:orders_admin")
+
+        # Persist shipping data and status
         order.shipping_ttn = ttn
         order.shipping_np_ref = doc_ref or ""
         order.shipped_at = timezone.now()
         order.status = "shipped"
         order.save(update_fields=["shipping_ttn", "shipping_np_ref", "shipped_at", "status"])
+
+        # Best-effort Woo stock sync
+        try:
+            client = woo_sync.WooClient()
+            for it in order.items.select_related("product", "variant"):
+                if it.variant and it.product.woo_id:
+                    client.update_variation_stock(it.product.woo_id, it.variant.woo_variation_id, it.variant.stock_qty)
+                elif it.product.woo_id:
+                    client.update_stock(it.product.woo_id, it.product.stock_qty)
+        except Exception:
+            pass
 
         # Notify customer about shipment
         try:
@@ -573,6 +594,7 @@ def order_admin_action(request, order_id: int, action: str):
 
         messages.success(request, f"Замовлення #{order.id} відвантажено. ТТН: {order.shipping_ttn}")
         return redirect("b2b:orders_admin")
+
 
     else:
         return HttpResponse("Unknown action", status=400)
@@ -708,15 +730,10 @@ def order_checkout_confirm(request):
             messages.error(request, f"Недостатньо на складі для {it.product.sku}. Доступно: {available}")
             return redirect("b2b:cart")
 
-    # Reserve locally
-    for it in order.items.select_related("product", "variant"):
-        if it.variant:
-            it.variant.stock_qty -= it.qty
-            it.variant.save(update_fields=["stock_qty"])
-        else:
-            it.product.stock_qty -= it.qty
-            it.product.save(update_fields=["stock_qty"])
+    # Reserve lots via FIFO and snapshot COGS on items
+    wh.reserve_order(order)  # updates Product.stock_qty internally
 
+    # Snapshot shipping address on the order
     order.status = "submitted"
     order.shipping_address = addr
     order.shipping_city = addr.city_name
@@ -725,16 +742,17 @@ def order_checkout_confirm(request):
     order.shipping_warehouse_ref = addr.warehouse_ref or ""
     order.shipping_recipient = addr.recipient_name
     order.shipping_phone = addr.recipient_phone
+
+    # Recalculate totals and persist
     order.recalc()
     order.save(update_fields=[
-        "status", "shipping_address",
+        "status",
+        "shipping_address",
         "shipping_city", "shipping_city_ref",
         "shipping_warehouse", "shipping_warehouse_ref",
         "shipping_recipient", "shipping_phone",
         "subtotal", "total",
     ])
-    order.recalc()
-    order.save(update_fields=["status", "shipping_address", "subtotal", "total"])
 
     # Push stock to Woo (best-effort)
     client = woo_sync.WooClient()
