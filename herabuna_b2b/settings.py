@@ -19,6 +19,7 @@ INSTALLED_APPS = [
     'b2b.apps.B2BConfig',
     'audit.apps.AuditConfig',
     'warehouse',
+    "reports",
 ]
 
 MIDDLEWARE = [

@@ -1,0 +1,178 @@
+{% extends "b2b/base.html" %}
+
+{% block title %}Звіт по залишках — Herabuna B2B{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="h4 mb-0">Звіт по залишках</h2>
+</div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-body">
+    <form id="stockFilters" method="get" class="row g-3 align-items-end">
+      <div class="col-12 col-md-4">
+        <label class="form-label">Бренд</label>
+        <select name="brand" class="form-select">
+          <option value="">Усі</option>
+          {% for b in brands %}
+            <option value="{{ b.id }}" {% if brand_id|stringformat:'s' == b.id|stringformat:'s' %}selected{% endif %}>
+              {{ b.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-md-4">
+        <label class="form-label">Категорія</label>
+        <select name="category" class="form-select">
+          <option value="">Усі</option>
+          {% for c in categories %}
+            <option value="{{ c.id }}" {% if category_id|stringformat:'s' == c.id|stringformat:'s' %}selected{% endif %}>
+              {{ c.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <button class="btn btn-primary w-100">Фільтрувати</button>
+      </div>
+      <div class="col-6 col-md-2">
+        <a href="{% url 'reports:stock_report' %}" class="btn btn-outline-secondary w-100">Скинути</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card text-bg-light border-0 shadow-sm h-100">
+      <div class="card-body">
+        <div class="small text-uppercase text-muted">Собівартість залишків</div>
+        <div class="fs-4 fw-semibold mt-1">
+          {{ total_cost|floatformat:2 }} грн
+        </div>
+        <div class="small text-muted mt-1">
+          Розрахунок: cost_price × stock_qty
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card text-bg-light border-0 shadow-sm h-100">
+      <div class="card-body">
+        <div class="small text-uppercase text-muted">Вартість по гурту</div>
+        <div class="fs-4 fw-semibold mt-1">
+          {{ total_wholesale|floatformat:2 }} грн
+        </div>
+        <div class="small text-muted mt-1">
+          Розрахунок: wholesale_price × stock_qty
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="card-title mb-0">Топ товарів за вартістю залишків</h5>
+      <span class="small text-muted">Показано до 20 позицій</span>
+    </div>
+    <canvas id="stockChart" height="180"></canvas>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-body">
+    <h5 class="card-title mb-3">Детальний список залишків</h5>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr>
+            <th>SKU</th>
+            <th>Назва</th>
+            <th>Бренд</th>
+            <th class="text-end">Кількість</th>
+            <th class="text-end">Собівартість, грн</th>
+            <th class="text-end">Собівартість залишку</th>
+            <th class="text-end">Гуртова, грн</th>
+            <th class="text-end">Вартість по гурту</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in products %}
+          <tr>
+            <td>{{ p.sku }}</td>
+            <td>{{ p.name_with_weight }}</td>
+            <td>{{ p.brand.name|default:"" }}</td>
+            <td class="text-end">{{ p.stock_qty }}</td>
+            <td class="text-end">{{ p.cost_price|default:"-" }}</td>
+            <td class="text-end">{{ p.cost_value|default:"-" }}</td>
+            <td class="text-end">{{ p.wholesale_price|default:"-" }}</td>
+            <td class="text-end">{{ p.wholesale_value|default:"-" }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="8" class="text-muted">Немає товарів.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  (function() {
+    const labels = {{ chart_labels|safe }};
+    const costData = {{ chart_cost_values|safe }};
+    const whData = {{ chart_wh_values|safe }};
+
+    const ctx = document.getElementById('stockChart');
+    if (!ctx || !labels.length) return;
+
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'Собівартість залишку',
+            data: costData,
+          },
+          {
+            label: 'Вартість по гурту',
+            data: whData,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                return context.dataset.label + ': ' +
+                  context.parsed.y.toLocaleString('uk-UA', {
+                    style: 'currency',
+                    currency: 'UAH',
+                    minimumFractionDigits: 0
+                  });
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { autoSkip: true, maxTicksLimit: 8 }
+          },
+          y: {
+            beginAtZero: true
+          }
+        }
+      }
+    });
+  })();
+</script>
+{% endblock %}

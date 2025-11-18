@@ -1,0 +1,207 @@
+{% extends "b2b/base.html" %}
+
+{% block title %}Звіт по продажах — Herabuna B2B{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="h4 mb-0">Звіт по продажах</h2>
+</div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-body">
+    <form method="get" class="row g-3 align-items-end">
+      <div class="col-12 col-md-3">
+        <label class="form-label">З дати</label>
+        <input type="date" name="date_from" class="form-control" value="{{ date_from }}">
+      </div>
+      <div class="col-12 col-md-3">
+        <label class="form-label">По дату</label>
+        <input type="date" name="date_to" class="form-control" value="{{ date_to }}">
+      </div>
+      <div class="col-12 col-md-3">
+        <label class="form-label">Дилер</label>
+        <select name="dealer" class="form-select">
+          <option value="">Усі</option>
+          {% for d in dealers %}
+            <option value="{{ d.id }}" {% if selected_dealer == d.id %}selected{% endif %}>
+              {{ d.company_name|default:d.username }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <button class="btn btn-primary w-100">Показати</button>
+      </div>
+      <div class="col-6 col-md-1 d-none d-md-block text-end">
+        {% if date_from or date_to or selected_dealer %}
+          <a href="{% url 'reports:sales_report' %}" class="btn btn-outline-secondary w-100">Скинути</a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card text-bg-light border-0 shadow-sm h-100">
+      <div class="card-body">
+        <div class="small text-uppercase text-muted">Період</div>
+        <div class="fw-semibold mt-1">{{ date_from }} — {{ date_to }}</div>
+        <div class="small text-muted mt-1">
+          Замовлень: {{ orders|length }}
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card text-bg-light border-0 shadow-sm h-100">
+      <div class="card-body">
+        <div class="small text-uppercase text-muted">Сума по дилерах</div>
+        <div class="fw-semibold mt-1">
+          {% with total=0 %}
+            {% for row in per_dealer %}
+              {% if forloop.first %}{% endif %}
+              {% with total=total|add:row.total_sum %}{% endwith %}
+            {% endfor %}
+          {% endwith %}
+          {# Простіше явно порахувати у view, але не чіпаю models #}
+          {% if per_dealer.0 %}
+            ≈ {{ per_dealer.0.total_sum|default_if_none:"0" }}+ грн
+          {% else %}
+            0 грн
+          {% endif %}
+        </div>
+        <div class="small text-muted mt-1">
+          Активних дилерів: {{ per_dealer|length }}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="card-title mb-0">Динаміка продажів</h5>
+      <span class="small text-muted">
+        Суми по днях (враховано: <code>submitted</code>, <code>pending_payment</code>, <code>shipped</code>)
+      </span>
+    </div>
+    <canvas id="salesChart" height="120"></canvas>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h6 class="card-title mb-3">Продажі за дилерами</h6>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead>
+              <tr>
+                <th>Дилер</th>
+                <th class="text-end">Сума, грн</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in per_dealer %}
+              <tr>
+                <td>{{ row.dealer__company_name|default:row.dealer__username }}</td>
+                <td class="text-end">{{ row.total_sum|floatformat:2 }}</td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="2" class="text-muted">Немає даних за вибраний період.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h6 class="card-title mb-3">Останні замовлення</h6>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Дата</th>
+                <th>Дилер</th>
+                <th class="text-end">Сума</th>
+                <th>Статус</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for o in orders %}
+              <tr>
+                <td><a href="{% url 'b2b:order_detail' o.id %}">#{{ o.id }}</a></td>
+                <td>{{ o.created_at|date:"Y-m-d H:i" }}</td>
+                <td>{{ o.dealer.company_name|default:o.dealer.username }}</td>
+                <td class="text-end">{{ o.total|floatformat:2 }}</td>
+                <td>{{ o.get_status_display|default:o.status }}</td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="5" class="text-muted">Немає замовлень.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  (function() {
+    const labels = {{ chart_labels|safe }};
+    const data = {{ chart_values|safe }};
+
+    const ctx = document.getElementById('salesChart');
+    if (!ctx || !labels.length) return;
+
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Продажі, грн',
+          data: data,
+          tension: 0.3,
+          fill: true,
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                return context.parsed.y.toLocaleString('uk-UA', {
+                  style: 'currency',
+                  currency: 'UAH',
+                  minimumFractionDigits: 0
+                });
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { autoSkip: true, maxTicksLimit: 10 }
+          },
+          y: {
+            beginAtZero: true
+          }
+        }
+      }
+    });
+  })();
+</script>
+{% endblock %}

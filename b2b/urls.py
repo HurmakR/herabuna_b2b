@@ -1,5 +1,5 @@
 from django.contrib.auth import views as auth_views
-from django.urls import path, reverse_lazy
+from django.urls import path, include, reverse_lazy
 from django.conf import settings
 from django.utils.module_loading import import_string
 from . import views
