@@ -1,178 +1,191 @@
 {% extends "b2b/base.html" %}
+{% load static %}
 
 {% block title %}Звіт по залишках — Herabuna B2B{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h2 class="h4 mb-0">Звіт по залишках</h2>
+  <h1 class="h4 mb-0">Звіт по залишках</h1>
 </div>
 
-<div class="card shadow-sm mb-4">
-  <div class="card-body">
-    <form id="stockFilters" method="get" class="row g-3 align-items-end">
-      <div class="col-12 col-md-4">
-        <label class="form-label">Бренд</label>
-        <select name="brand" class="form-select">
-          <option value="">Усі</option>
+<form method="get" class="card mb-3 shadow-sm border-0">
+  <div class="card-body py-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label small text-muted mb-1">Бренд</label>
+        <select name="brand" class="form-select form-select-sm">
+          <option value="">Усі бренди</option>
           {% for b in brands %}
-            <option value="{{ b.id }}" {% if brand_id|stringformat:'s' == b.id|stringformat:'s' %}selected{% endif %}>
+            <option value="{{ b.id }}" {% if brand_id|default:''|stringformat:"s" == b.id|stringformat:"s" %}selected{% endif %}>
               {{ b.name }}
             </option>
           {% endfor %}
         </select>
       </div>
-      <div class="col-12 col-md-4">
-        <label class="form-label">Категорія</label>
-        <select name="category" class="form-select">
-          <option value="">Усі</option>
-          {% for c in categories %}
-            <option value="{{ c.id }}" {% if category_id|stringformat:'s' == c.id|stringformat:'s' %}selected{% endif %}>
-              {{ c.name }}
-            </option>
-          {% endfor %}
-        </select>
+      <div class="col-md-3">
+        <div class="form-check mt-4 pt-1">
+          <input class="form-check-input" type="checkbox" id="onlyInStock" name="only_in_stock" value="1"
+                 {% if only_in_stock %}checked{% endif %}>
+          <label class="form-check-label" for="onlyInStock">
+            Лише в наявності
+          </label>
+        </div>
       </div>
-      <div class="col-6 col-md-2">
-        <button class="btn btn-primary w-100">Фільтрувати</button>
+      <div class="col-md-5 d-flex justify-content-end gap-2 mt-3 mt-md-0">
+        <button class="btn btn-primary btn-sm px-4" type="submit">Фільтрувати</button>
+        <a href="{% url 'reports:stock_report' %}" class="btn btn-outline-secondary btn-sm px-4">Скинути</a>
       </div>
-      <div class="col-6 col-md-2">
-        <a href="{% url 'reports:stock_report' %}" class="btn btn-outline-secondary w-100">Скинути</a>
-      </div>
-    </form>
+    </div>
   </div>
-</div>
+</form>
 
-<div class="row g-3 mb-4">
+<div class="row g-3 mb-3">
   <div class="col-md-4">
-    <div class="card text-bg-light border-0 shadow-sm h-100">
+    <div class="card shadow-sm border-0 h-100">
       <div class="card-body">
-        <div class="small text-uppercase text-muted">Собівартість залишків</div>
-        <div class="fs-4 fw-semibold mt-1">
-          {{ total_cost|floatformat:2 }} грн
-        </div>
-        <div class="small text-muted mt-1">
-          Розрахунок: cost_price × stock_qty
-        </div>
+        <div class="small text-muted mb-1">Кількість одиниць</div>
+        <div class="h3 mb-0 fw-semibold">{{ total_qty }}</div>
       </div>
     </div>
   </div>
   <div class="col-md-4">
-    <div class="card text-bg-light border-0 shadow-sm h-100">
+    <div class="card shadow-sm border-0 h-100">
       <div class="card-body">
-        <div class="small text-uppercase text-muted">Вартість по гурту</div>
-        <div class="fs-4 fw-semibold mt-1">
-          {{ total_wholesale|floatformat:2 }} грн
-        </div>
-        <div class="small text-muted mt-1">
-          Розрахунок: wholesale_price × stock_qty
-        </div>
+        <div class="small text-muted mb-1">Вартість по входу</div>
+        <div class="h3 mb-0 fw-semibold">{{ total_cost|floatformat:2 }} грн</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body">
+        <div class="small text-muted mb-1">Вартість по гурту</div>
+        <div class="h3 mb-0 fw-semibold">{{ total_wholesale|floatformat:2 }} грн</div>
       </div>
     </div>
   </div>
 </div>
 
-<div class="card shadow-sm mb-4">
+<div class="card mb-3 shadow-sm border-0">
   <div class="card-body">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <h5 class="card-title mb-0">Топ товарів за вартістю залишків</h5>
-      <span class="small text-muted">Показано до 20 позицій</span>
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h2 class="h6 mb-0">Структура залишків по брендах (за вхідною вартістю)</h2>
     </div>
-    <canvas id="stockChart" height="180"></canvas>
+    {% if chart_labels %}
+      {{ chart_labels|json_script:"stock-chart-labels" }}
+      {{ chart_values|json_script:"stock-chart-values" }}
+      <div style="height: 260px;">
+        <canvas id="stockBrandChart"></canvas>
+      </div>
+    {% else %}
+      <p class="text-muted small mb-0">Недостатньо даних для побудови графіка.</p>
+    {% endif %}
   </div>
 </div>
 
-<div class="card shadow-sm">
+<div class="card shadow-sm border-0 mb-4">
   <div class="card-body">
-    <h5 class="card-title mb-3">Детальний список залишків</h5>
+    <h2 class="h6 mb-3">Деталізація по товарах</h2>
     <div class="table-responsive">
-      <table class="table table-sm align-middle">
-        <thead>
+      <table class="table table-sm align-middle mb-0">
+        <thead class="table-light">
           <tr>
-            <th>SKU</th>
-            <th>Назва</th>
-            <th>Бренд</th>
-            <th class="text-end">Кількість</th>
-            <th class="text-end">Собівартість, грн</th>
-            <th class="text-end">Собівартість залишку</th>
-            <th class="text-end">Гуртова, грн</th>
-            <th class="text-end">Вартість по гурту</th>
+            <th scope="col">SKU</th>
+            <th scope="col">Товар</th>
+            <th scope="col">Бренд</th>
+            <th scope="col" class="text-end">К-сть</th>
+            <th scope="col" class="text-end">Вхідна, грн</th>
+            <th scope="col" class="text-end">Гурт, грн</th>
+            <th scope="col" class="text-end">Запас по входу</th>
+            <th scope="col" class="text-end">Запас по гурту</th>
           </tr>
         </thead>
         <tbody>
-          {% for p in products %}
+        {% for p in products %}
           <tr>
-            <td>{{ p.sku }}</td>
+            <td class="text-nowrap">{{ p.sku }}</td>
             <td>{{ p.name_with_weight }}</td>
-            <td>{{ p.brand.name|default:"" }}</td>
+            <td>{% if p.brand %}{{ p.brand.name }}{% endif %}</td>
             <td class="text-end">{{ p.stock_qty }}</td>
-            <td class="text-end">{{ p.cost_price|default:"-" }}</td>
-            <td class="text-end">{{ p.cost_value|default:"-" }}</td>
-            <td class="text-end">{{ p.wholesale_price|default:"-" }}</td>
-            <td class="text-end">{{ p.wholesale_value|default:"-" }}</td>
+            <td class="text-end">{{ p.cost_price|floatformat:2 }}</td>
+            <td class="text-end">{{ p.wholesale_price|floatformat:2 }}</td>
+            <td class="text-end">{{ p.stock_cost|floatformat:2 }}</td>
+            <td class="text-end">{{ p.stock_wholesale|floatformat:2 }}</td>
           </tr>
-          {% empty %}
-          <tr><td colspan="8" class="text-muted">Немає товарів.</td></tr>
-          {% endfor %}
+        {% empty %}
+          <tr>
+            <td colspan="8" class="text-center text-muted py-3">
+              Немає товарів у вибірці.
+            </td>
+          </tr>
+        {% endfor %}
         </tbody>
       </table>
     </div>
+    {% if products|length >= 500 %}
+      <p class="text-muted small mt-2 mb-0">Показано перші 500 позицій за вибраними фільтрами.</p>
+    {% endif %}
   </div>
 </div>
 {% endblock %}
 
-{% block extra_scripts %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script>
-  (function() {
-    const labels = {{ chart_labels|safe }};
-    const costData = {{ chart_cost_values|safe }};
-    const whData = {{ chart_wh_values|safe }};
+{% block scripts %}
+  {{ block.super }}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    (function () {
+      const labelsEl = document.getElementById('stock-chart-labels');
+      const valuesEl = document.getElementById('stock-chart-values');
+      if (!labelsEl || !valuesEl) {
+        return;
+      }
 
-    const ctx = document.getElementById('stockChart');
-    if (!ctx || !labels.length) return;
+      const labels = JSON.parse(labelsEl.textContent);
+      const values = JSON.parse(valuesEl.textContent);
 
-    new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: labels,
-        datasets: [
-          {
-            label: 'Собівартість залишку',
-            data: costData,
-          },
-          {
-            label: 'Вартість по гурту',
-            data: whData,
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        plugins: {
-          legend: { position: 'top' },
-          tooltip: {
-            callbacks: {
-              label: function(context) {
-                return context.dataset.label + ': ' +
-                  context.parsed.y.toLocaleString('uk-UA', {
-                    style: 'currency',
-                    currency: 'UAH',
-                    minimumFractionDigits: 0
-                  });
+      const ctx = document.getElementById('stockBrandChart');
+      if (!ctx) {
+        return;
+      }
+
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Вартість по входу, грн',
+            data: values,
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: false
+            },
+            tooltip: {
+              callbacks: {
+                label: function (ctx) {
+                  return ctx.parsed.y.toFixed(2) + ' грн';
+                }
               }
             }
-          }
-        },
-        scales: {
-          x: {
-            ticks: { autoSkip: true, maxTicksLimit: 8 }
           },
-          y: {
-            beginAtZero: true
+          scales: {
+            x: {
+              ticks: {
+                maxRotation: 45,
+                minRotation: 0
+              }
+            },
+            y: {
+              beginAtZero: true
+            }
           }
         }
-      }
-    });
-  })();
-</script>
+      });
+    })();
+  </script>
 {% endblock %}

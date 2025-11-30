@@ -1,7 +1,46 @@
 {% extends "b2b/base.html" %}
 {% block title %}Замовлення клієнтів — Herabuna B2B{% endblock %}
+
 {% block content %}
+
 <h2 class="h4 mb-3">Замовлення клієнтів</h2>
+
+<form method="get" class="card p-3 shadow-sm mb-3">
+  <div class="row g-2">
+    <div class="col-md-3">
+      <label class="form-label small text-muted mb-1">Клієнт</label>
+      <select name="dealer" class="form-select form-select-sm">
+        <option value="">Усі</option>
+        {% for d in dealers %}
+          <option value="{{ d.id }}"
+            {% if request.GET.dealer|default:'' == d.id|stringformat:"s" %}selected{% endif %}>
+              {{ d.username }}
+              {% if d.company_name %} — {{ d.company_name }}{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label small text-muted mb-1">Статус</label>
+      <select name="status" class="form-select form-select-sm">
+        <option value="">Усі</option>
+        <option value="submitted" {% if request.GET.status == "submitted" %}selected{% endif %}>Надіслано</option>
+        <option value="pending_payment" {% if request.GET.status == "pending_payment" %}selected{% endif %}>Очікує оплату</option>
+        <option value="shipped" {% if request.GET.status == "shipped" %}selected{% endif %}>Відвантажено</option>
+        <option value="cancelled" {% if request.GET.status == "cancelled" %}selected{% endif %}>Скасовано</option>
+      </select>
+    </div>
+
+    <div class="col-md-3 d-flex align-items-end">
+      <button class="btn btn-primary btn-sm w-100">Фільтрувати</button>
+    </div>
+
+    <div class="col-md-3 d-flex align-items-end">
+      <a href="{% url 'b2b:orders_admin' %}" class="btn btn-outline-secondary btn-sm w-100">Скинути</a>
+    </div>
+  </div>
+</form>
 
 <div class="table-responsive">
   <table class="table table-striped table-bordered align-middle">
@@ -23,32 +62,56 @@
         <td><a href="{% url 'b2b:order_detail' o.id %}">#{{ o.id }}</a></td>
         <td>{{ o.dealer.username }}</td>
         <td>{{ o.get_status_display }}</td>
-        <td class="text-end">{{ o.total }}</td>
-        <td>{{ o.shipping_city }}<br><small class="text-muted">{{ o.shipping_warehouse }}</small></td>
-        <td>{% if o.shipping_ttn %}<span class="fw-semibold">{{ o.shipping_ttn }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+        <td class="text-end">{{ o.total|floatformat:2 }}</td>
+
+        <td>
+          {{ o.shipping_city }}
+          <br>
+          <small class="text-muted">{{ o.shipping_warehouse }}</small>
+        </td>
+
+        <td>
+          {% if o.shipping_ttn %}
+            <span class="fw-semibold">{{ o.shipping_ttn }}</span>
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+
         <td>{{ o.created_at|date:"d.m.Y H:i" }}</td>
+
         <td class="text-nowrap">
-          <a class="btn btn-outline-secondary btn-sm" href="{% url 'b2b:order_detail' o.id %}">Деталі</a>
+
+          <a class="btn btn-outline-secondary btn-sm"
+             href="{% url 'b2b:order_detail' o.id %}">Деталі</a>
 
           {% if o.status == 'submitted' %}
-            <form method="post" action="{% url 'b2b:order_admin_action' o.id 'confirm' %}" class="d-inline">
+            <form method="post"
+                  action="{% url 'b2b:order_admin_action' o.id 'confirm' %}"
+                  class="d-inline">
               {% csrf_token %}
               <button class="btn btn-success btn-sm">Підтвердити</button>
             </form>
 
-            <form method="post" action="{% url 'b2b:order_admin_action' o.id 'cancel' %}" class="d-inline"
+            <form method="post"
+                  action="{% url 'b2b:order_admin_action' o.id 'cancel' %}"
+                  class="d-inline"
                   onsubmit="return confirm('Скасувати замовлення?')">
               {% csrf_token %}
               <button class="btn btn-danger btn-sm">Скасувати</button>
             </form>
 
           {% elif o.status == 'pending_payment' %}
-            <form method="post" action="{% url 'b2b:order_admin_action' o.id 'ship' %}" class="d-inline">
+            <form method="post"
+                  action="{% url 'b2b:order_admin_action' o.id 'ship' %}"
+                  class="d-inline">
               {% csrf_token %}
               <button class="btn btn-primary btn-sm">Відвантажити</button>
             </form>
 
-            <form method="post" action="{% url 'b2b:order_admin_action' o.id 'cancel' %}" class="d-inline"
+            <form method="post"
+                  action="{% url 'b2b:order_admin_action' o.id 'cancel' %}"
+                  class="d-inline"
                   onsubmit="return confirm('Скасувати замовлення?')">
               {% csrf_token %}
               <button class="btn btn-outline-danger btn-sm">Скасувати</button>
@@ -58,11 +121,17 @@
             <span class="text-muted">—</span>
           {% endif %}
         </td>
+
       </tr>
       {% empty %}
-      <tr><td colspan="8" class="text-center text-muted py-4">Замовлень немає.</td></tr>
+      <tr>
+        <td colspan="8" class="text-center text-muted py-4">
+          Замовлень немає.
+        </td>
+      </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
 {% endblock %}

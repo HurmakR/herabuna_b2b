@@ -25,7 +25,7 @@ except Exception:
 
 from django.forms import modelform_factory
 from .forms import DealerSignUpForm, ProfileForm, AddressForm
-from .models import Brand, Category, Order, OrderItem, Product, ProductVariant, Address
+from .models import Brand, Category, Order, OrderItem, Product, ProductVariant, Address, Dealer
 from .services import woo_sync, np_api, telegram as tg
 
 
@@ -455,11 +455,31 @@ def _is_staff(u): return u.is_staff
 
 @user_passes_test(_is_staff)
 def orders_admin(request):
-    status = request.GET.get("status")
-    qs = Order.objects.all().order_by("-created_at")
+    """Admin orders list with status + dealer filters."""
+    status = (request.GET.get("status") or "").strip()
+    dealer_id = (request.GET.get("dealer") or "").strip()
+
+    qs = (
+        Order.objects
+        .select_related("dealer")
+        .all()
+        .order_by("-created_at")
+    )
+
     if status:
         qs = qs.filter(status=status)
-    return render(request, "b2b/orders_admin.html", {"orders": qs, "status": status or ""})
+    if dealer_id:
+        qs = qs.filter(dealer_id=dealer_id)
+
+    dealers = Dealer.objects.filter(is_dealer=True).order_by("username")
+
+    context = {
+        "orders": qs,
+        "status": status,
+        "dealer_id": dealer_id,
+        "dealers": dealers,
+    }
+    return render(request, "b2b/orders_admin.html", context)
 
 
 def _render_invoice_pdf_bytes(request, order):
