@@ -1,100 +1,301 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
 from decimal import Decimal
+from typing import Iterable
+
 from django.db import transaction
-from django.db.models import Sum
-from .models import InventoryLot, InventoryReservation, InventoryMove
+from django.db.models import F
+from django.utils import timezone
 
-def recompute_product_stock(product):
-    """Recalculate Product.stock_qty from lots.available."""
-    agg = product.lots.aggregate(avail=Sum('qty_in') - Sum('qty_reserved') - Sum('qty_out'))
-    product.stock_qty = int(agg['avail'] or 0)
-    product.save(update_fields=['stock_qty'])
+from b2b.models import Order, OrderItem, Product
+from .models import InventoryLot, InventoryMove, InventoryReservation, recompute_product_stock
 
-def receive_lot(product, qty: int, unit_cost: Decimal, reference: str = "") -> InventoryLot:
-    """Create inbound lot and move."""
-    lot = InventoryLot.objects.create(product=product, qty_in=qty, unit_cost=unit_cost, reference=reference)
-    InventoryMove.objects.create(product=product, lot=lot, move_type=InventoryMove.INBOUND, qty=qty, note=reference)
-    recompute_product_stock(product)
+
+class WarehouseError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class ReserveResult:
+    reserved_total: int
+    reservations: list[InventoryReservation]
+
+
+@transaction.atomic
+def receive_lot(*, product, qty: int, unit_cost, reference: str = "", note: str = "", user=None):
+    # Create lot
+    lot = InventoryLot(
+        product=product,
+        unit_cost=unit_cost,
+        qty_in=qty,
+        qty_out=0,
+        qty_reserved=0,
+        reference=reference or "",
+    )
+
+    # Save optional note if the model has this field
+    if hasattr(lot, "note"):
+        lot.note = note or ""
+    lot.save()
+
+    # Create move IN
+    move = InventoryMove(
+        move_type="IN",
+        product=product,
+        lot=lot,
+        qty=qty,
+        created_at=timezone.now(),
+    )
+
+    # Save optional note/created_by if those fields exist on the model
+    if hasattr(move, "note"):
+        move.note = note or reference or ""
+    if hasattr(move, "created_by"):
+        move.created_by = user
+    move.save()
+
+    # Update aggregate stock on Product (single source for catalog availability)
+    product.stock_qty = (product.stock_qty or 0) + int(qty)
+    product.save(update_fields=["stock_qty"])
+
     return lot
 
-def _ensure_bootstrap_lot_if_needed(product, needed_qty: int):
-    """Create a synthetic lot if there is no stock but system must operate."""
-    available = sum(l.qty_available for l in product.lots.all())
-    if available >= needed_qty:
-        return
-    # Create a virtual lot using product.cost_price as unit cost
-    note = "Auto-created bootstrap lot from product.cost_price"
-    receive_lot(product, needed_qty, product.cost_price or Decimal('0.00'), reference=note)
 
 @transaction.atomic
-def reserve_order(order):
+def adjust_lot(*, lot: InventoryLot, delta: int, note: str = "") -> InventoryLot:
+    if delta == 0:
+        return lot
+
+    if delta < 0:
+        needed = abs(int(delta))
+        if lot.qty_available < needed:
+            raise WarehouseError("Not enough available qty in this lot to decrease")
+
+        lot.qty_out = F("qty_out") + needed
+        lot.save(update_fields=["qty_out"])
+        lot.refresh_from_db(fields=["qty_in", "qty_reserved", "qty_out"])
+    else:
+        lot.qty_in = F("qty_in") + int(delta)
+        lot.save(update_fields=["qty_in"])
+        lot.refresh_from_db(fields=["qty_in", "qty_reserved", "qty_out"])
+
+    InventoryMove.objects.create(
+        move_type=InventoryMove.MOVE_ADJUST,
+        product=lot.product,
+        lot=lot,
+        qty=int(delta),
+        note=(note or "").strip(),
+    )
+    recompute_product_stock(lot.product_id)
+    return lot
+
+
+def _iter_fifo_lots(product: Product) -> Iterable[InventoryLot]:
+    return InventoryLot.objects.filter(product=product).order_by("received_at", "id").select_for_update()
+
+
+@transaction.atomic
+def reserve_order(order: Order) -> None:
+    if order.status != "draft":
+        return
+
+    InventoryReservation.objects.filter(order_item__order=order).delete()
+
+    for item in order.items.select_related("product", "variant").all():
+        _reserve_order_item(item)
+
+    order.recalc()
+    order.save(update_fields=["subtotal", "total"])
+
+
+def _reserve_order_item(item: OrderItem) -> ReserveResult:
+    product = item.product
+    qty_need = int(item.qty or 0)
+    if qty_need <= 0:
+        return ReserveResult(0, [])
+
+    reserved_total = 0
+    reservations: list[InventoryReservation] = []
+
+    for lot in _iter_fifo_lots(product):
+        if reserved_total >= qty_need:
+            break
+        can = min(lot.qty_available, qty_need - reserved_total)
+        if can <= 0:
+            continue
+
+        lot.qty_reserved = F("qty_reserved") + can
+        lot.save(update_fields=["qty_reserved"])
+        lot.refresh_from_db(fields=["qty_in", "qty_reserved", "qty_out"])
+
+        res = InventoryReservation.objects.create(lot=lot, order_item=item, qty=can)
+        reservations.append(res)
+
+        InventoryMove.objects.create(
+            move_type=InventoryMove.MOVE_RESERVE,
+            product=product,
+            lot=lot,
+            order=item.order,
+            order_item=item,
+            qty=-can,
+            note="reserve",
+        )
+
+        reserved_total += can
+
+    recompute_product_stock(product.id)
+
+    if reserved_total < qty_need:
+        raise WarehouseError(f"Not enough stock for {product.sku}. Need {qty_need}, reserved {reserved_total}")
+
+    return ReserveResult(reserved_total, reservations)
+
+
+@transaction.atomic
+def cancel_order(order: Order) -> None:
+    res_qs = InventoryReservation.objects.select_related("lot", "order_item").filter(order_item__order=order)
+    for res in res_qs:
+        lot = res.lot
+        lot.qty_reserved = F("qty_reserved") - int(res.qty)
+        lot.save(update_fields=["qty_reserved"])
+        InventoryMove.objects.create(
+            move_type=InventoryMove.MOVE_RELEASE,
+            product=lot.product,
+            lot=lot,
+            order=order,
+            order_item=res.order_item,
+            qty=int(res.qty),
+            note="cancel",
+        )
+        recompute_product_stock(lot.product_id)
+
+    res_qs.delete()
+    order.recalc()
+    order.save(update_fields=["subtotal", "total"])
+
+
+@transaction.atomic
+def ship_order(order: Order) -> None:
+    res_qs = InventoryReservation.objects.select_related("lot", "order_item").filter(order_item__order=order)
+    if not res_qs.exists():
+        reserve_order(order)
+        res_qs = InventoryReservation.objects.select_related("lot", "order_item").filter(order_item__order=order)
+
+    item_totals: dict[int, Decimal] = {}
+    item_qty: dict[int, int] = {}
+
+    for res in res_qs:
+        lot = res.lot
+        qty = int(res.qty)
+
+        lot.qty_reserved = F("qty_reserved") - qty
+        lot.qty_out = F("qty_out") + qty
+        lot.save(update_fields=["qty_reserved", "qty_out"])
+
+        InventoryMove.objects.create(
+            move_type=InventoryMove.MOVE_SHIP,
+            product=lot.product,
+            lot=lot,
+            order=order,
+            order_item=res.order_item,
+            qty=-qty,
+            note="ship",
+        )
+
+        item_totals[res.order_item_id] = item_totals.get(res.order_item_id, Decimal("0")) + (lot.unit_cost * qty)
+        item_qty[res.order_item_id] = item_qty.get(res.order_item_id, 0) + qty
+
+        recompute_product_stock(lot.product_id)
+
+    for item_id, total in item_totals.items():
+        qty = item_qty.get(item_id, 0)
+        unit = (total / qty) if qty else Decimal("0")
+        OrderItem.objects.filter(id=item_id).update(cost_unit=unit, cost_total=total)
+
+    res_qs.delete()
+
+# --- add below at the end of warehouse/services.py ---
+
+@transaction.atomic
+def adjust_stock(*, product: Product, qty_delta: int, lot: InventoryLot | None = None, note: str = "", user=None) -> None:
     """
-    FIFO-reserve lots for each item; snapshot cost on item.
-    If no lots exist, create a bootstrap lot from product.cost_price.
+    Inventory adjustment (ADJ).
+    - If `lot` is provided: apply delta to that lot.
+    - If `lot` is not provided and delta < 0: consume FIFO lots until delta is satisfied.
+    - If `lot` is not provided and delta > 0: create a new lot as an adjustment lot.
     """
-    for it in order.items.select_related('product').all():
-        need = int(it.qty)
-        product = it.product
+    delta = int(qty_delta or 0)
+    if delta == 0:
+        return
 
-        # Ensure we have enough available lots (bootstrap if necessary)
-        _ensure_bootstrap_lot_if_needed(product, need)
+    note = (note or "").strip()
 
-        remaining = need
-        cost_sum = Decimal('0.00')
-        reserved_total = 0
+    # Apply to a specific lot
+    if lot is not None:
+        adjust_lot(lot=lot, delta=delta, note=note)
+        return
 
-        for lot in product.lots.select_for_update().all():
+    # Negative adjustment: write-off from FIFO lots
+    if delta < 0:
+        remaining = abs(delta)
+
+        for fifo_lot in _iter_fifo_lots(product):
             if remaining <= 0:
                 break
-            take = min(remaining, lot.qty_available)
-            if take <= 0:
+
+            available = int(fifo_lot.qty_available or 0)
+            if available <= 0:
                 continue
-            # reserve
-            lot.qty_reserved += take
-            lot.save(update_fields=['qty_reserved'])
-            InventoryReservation.objects.create(order_item=it, lot=lot, qty=take)
-            InventoryMove.objects.create(product=product, lot=lot, order=order, order_item=it,
-                                         move_type=InventoryMove.RESERVE, qty=take, note="Order submit")
-            cost_sum += (lot.unit_cost * take)
-            reserved_total += take
+
+            take = min(available, remaining)
+
+            fifo_lot.qty_out = F("qty_out") + take
+            fifo_lot.save(update_fields=["qty_out"])
+            fifo_lot.refresh_from_db(fields=["qty_in", "qty_reserved", "qty_out"])
+
+            mv = InventoryMove(
+                move_type=InventoryMove.MOVE_ADJUST,
+                product=product,
+                lot=fifo_lot,
+                qty=-take,
+                note=note,
+            )
+            if hasattr(mv, "created_by"):
+                mv.created_by = user
+            mv.save()
+
+            recompute_product_stock(fifo_lot.product_id)
             remaining -= take
 
-        # snapshot weighted average cost on OrderItem
-        if reserved_total > 0:
-            it.cost_unit = (cost_sum / Decimal(reserved_total)).quantize(Decimal('0.01'))
-            it.cost_total = (it.cost_unit * Decimal(it.qty)).quantize(Decimal('0.01'))
-            it.save(update_fields=['cost_unit', 'cost_total'])
+        if remaining > 0:
+            raise WarehouseError("Not enough available stock across lots to decrease")
 
-        # Reflect total available stock on Product (for UI)
-        recompute_product_stock(product)
+        return
 
-@transaction.atomic
-def cancel_order(order):
-    """Release all reservations and clear cost snapshot."""
-    for it in order.items.select_related('product').all():
-        for r in it.lot_reservations.select_related('lot').all():
-            lot = r.lot
-            lot.qty_reserved = max(0, lot.qty_reserved - r.qty)
-            lot.save(update_fields=['qty_reserved'])
-            InventoryMove.objects.create(product=it.product, lot=lot, order=order, order_item=it,
-                                         move_type=InventoryMove.RELEASE, qty=r.qty, note="Order cancel")
-        it.lot_reservations.all().delete()
-        it.cost_unit = None
-        it.cost_total = None
-        it.save(update_fields=['cost_unit', 'cost_total'])
-        recompute_product_stock(it.product)
+    # Positive adjustment: create a new lot (so we keep audit trail via lots)
+    lot_ref = "ADJ+"
+    adj_lot = InventoryLot(
+        product=product,
+        unit_cost=getattr(product, "cost_price", Decimal("0")) or Decimal("0"),
+        qty_in=delta,
+        qty_out=0,
+        qty_reserved=0,
+        reference=lot_ref,
+    )
+    if hasattr(adj_lot, "note"):
+        adj_lot.note = note
+    adj_lot.save()
 
-@transaction.atomic
-def ship_order(order):
-    """Consume reserved quantities from lots and finalize COGS."""
-    for it in order.items.select_related('product').all():
-        for r in it.lot_reservations.select_related('lot').all():
-            lot = r.lot
-            # move reserved -> out
-            lot.qty_reserved = max(0, lot.qty_reserved - r.qty)
-            lot.qty_out += r.qty
-            lot.save(update_fields=['qty_reserved', 'qty_out'])
-            InventoryMove.objects.create(product=it.product, lot=lot, order=order, order_item=it,
-                                         move_type=InventoryMove.SHIP, qty=r.qty, note="Order ship")
-        it.lot_reservations.all().delete()
-        # Product stock already recomputed by recompute_product_stock below
-        recompute_product_stock(it.product)
+    mv = InventoryMove(
+        move_type=InventoryMove.MOVE_ADJUST,
+        product=product,
+        lot=adj_lot,
+        qty=delta,
+        note=note or lot_ref,
+    )
+    if hasattr(mv, "created_by"):
+        mv.created_by = user
+    mv.save()
+
+    recompute_product_stock(product.id)

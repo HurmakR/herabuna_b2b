@@ -1,0 +1,104 @@
+{% extends "b2b/base.html" %}
+{% block title %}Склад — Herabuna B2B{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <div>
+    <h1 class="h4 mb-0">Склад</h1>
+    <div class="text-muted small">Огляд залишків, лоти, оприбуткування та коригування</div>
+  </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-primary" href="{% url 'warehouse:receive' %}">Оприбуткувати</a>
+    <a class="btn btn-outline-secondary" href="{% url 'warehouse:adjust' %}">Коригування (ADJ)</a>
+  </div>
+</div>
+
+<form method="get" class="card shadow-sm border-0 mb-3">
+  <div class="card-body py-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label small text-muted mb-1">Пошук</label>
+        <input class="form-control" name="q" value="{{ q }}" placeholder="SKU або назва товару">
+      </div>
+      <div class="col-md-6 d-flex justify-content-end gap-2">
+        <button class="btn btn-primary" type="submit">Знайти</button>
+        <a class="btn btn-outline-secondary" href="{% url 'warehouse:dashboard' %}">Скинути</a>
+      </div>
+    </div>
+  </div>
+</form>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-4">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body">
+        <div class="small text-muted mb-1">Кількість одиниць</div>
+        <div class="h3 mb-0 fw-semibold">{{ totals.total_qty }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body">
+        <div class="small text-muted mb-1">Вартість по входу</div>
+        <div class="h3 mb-0 fw-semibold">{{ totals.total_cost|floatformat:2 }} грн</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body">
+        <div class="small text-muted mb-1">Вартість по гурту</div>
+        <div class="h3 mb-0 fw-semibold">{{ totals.total_wholesale|floatformat:2 }} грн</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm border-0">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h2 class="h6 mb-0">Товари</h2>
+      <span class="text-muted small">Показано до 500 позицій</span>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>SKU</th>
+            <th>Товар</th>
+            <th class="text-end">Залишок</th>
+            <th class="text-end">Вхідна</th>
+            <th class="text-end">Гурт</th>
+            <th class="text-end">Запас по входу</th>
+            <th class="text-end">Запас по гурту</th>
+            <th class="text-end">Дії</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for p in products %}
+          <tr>
+            <td class="text-nowrap">{{ p.sku }}</td>
+            <td>{{ p.name }}</td>
+            <td class="text-end fw-semibold">{{ p.stock_qty }}</td>
+            <td class="text-end">{{ p.cost_price|floatformat:2 }}</td>
+            <td class="text-end">{{ p.wholesale_price|floatformat:2 }}</td>
+            <td class="text-end">{{ p.stock_cost|floatformat:2 }}</td>
+            <td class="text-end">{{ p.stock_wholesale|floatformat:2 }}</td>
+            <td class="text-end text-nowrap">
+              <a class="btn btn-outline-secondary btn-sm" href="{% url 'warehouse:product_lots' p.id %}">Лоти</a>
+              <a class="btn btn-outline-primary btn-sm" href="{% url 'warehouse:receive' %}?product={{ p.id }}">IN</a>
+              <a class="btn btn-outline-warning btn-sm" href="{% url 'warehouse:adjust' %}?product={{ p.id }}">ADJ</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="8" class="text-center text-muted py-4">Нічого не знайдено.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

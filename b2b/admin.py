@@ -258,7 +258,8 @@ class ProductAdmin(admin.ModelAdmin):
     """Product admin with sync action and inline images."""
     list_display = ("sku", "name", "brand", "wholesale_price", "retail_price", "stock_qty", "weight_g", "is_active")
     search_fields = ("sku", "name")
-    list_editable = ("wholesale_price", "stock_qty", "is_active")
+    list_editable = ("wholesale_price", "is_active")
+    readonly_fields = ("stock_qty",)
     list_filter = ("is_active", "brand")
     actions = [sync_with_woo]
     inlines = [ProductImageInline]

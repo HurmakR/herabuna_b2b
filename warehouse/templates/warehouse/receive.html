@@ -1,0 +1,47 @@
+{% extends "b2b/base.html" %}
+{% block title %}Оприбуткування — Herabuna B2B{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h1 class="h4 mb-0">Оприбуткування (новий лот)</h1>
+    <div class="text-muted small">Створює лот і складський рух IN</div>
+  </div>
+  <a class="btn btn-outline-secondary" href="{% url 'warehouse:dashboard' %}">Назад</a>
+</div>
+
+<form method="post" class="card shadow-sm border-0">
+  <div class="card-body">
+    {% csrf_token %}
+
+    <div class="row g-3">
+      <div class="col-lg-8">
+        <label class="form-label">Товар</label>
+        {{ form.product }}
+      </div>
+      <div class="col-lg-2">
+        <label class="form-label">К-сть</label>
+        {{ form.qty }}
+      </div>
+      <div class="col-lg-2">
+        <label class="form-label">Вхідна ціна (за од.)</label>
+        {{ form.unit_cost }}
+      </div>
+
+      <div class="col-lg-4">
+        <label class="form-label">Референс / партія / інвойс</label>
+        {{ form.reference }}
+      </div>
+      <div class="col-lg-8">
+        <label class="form-label">Нотатка</label>
+        {{ form.note }}
+      </div>
+    </div>
+
+    <div class="mt-4 d-flex gap-2">
+      <button class="btn btn-primary px-4" type="submit">Оприбуткувати</button>
+      <a class="btn btn-outline-secondary px-4" href="{% url 'warehouse:dashboard' %}">Скасувати</a>
+    </div>
+  </div>
+</form>
+{% endblock %}

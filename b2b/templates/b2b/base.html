@@ -32,6 +32,16 @@
                 {{ admin_new_orders }}
               </span>
             {% endif %}
+            <li class="nav-item dropdown">
+              <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                Склад
+              </a>
+              <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="{% url 'warehouse:dashboard' %}">Dashboard</a></li>
+                <li><a class="dropdown-item" href="{% url 'warehouse:receive' %}">Оприбуткування</a></li>
+                <li><a class="dropdown-item" href="{% url 'warehouse:adjust' %}">Коригування</a></li>
+              </ul>
+            </li>
           </a>
         {% endif %}
 

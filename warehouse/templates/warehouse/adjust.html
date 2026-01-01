@@ -1,0 +1,51 @@
+{% extends "b2b/base.html" %}
+{% block title %}Коригування — Herabuna B2B{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h1 class="h4 mb-0">Коригування залишків (ADJ)</h1>
+    <div class="text-muted small">Формує складський рух ADJ і впливає на залишки через лоти</div>
+  </div>
+  <a class="btn btn-outline-secondary" href="{% url 'warehouse:dashboard' %}">Назад</a>
+</div>
+
+<div class="alert alert-warning">
+  <div class="fw-semibold mb-1">Увага</div>
+  Коригування не редагує stock_qty напряму — воно створює рух і змінює лоти.
+</div>
+
+<form method="post" class="card shadow-sm border-0">
+  <div class="card-body">
+    {% csrf_token %}
+
+    <div class="row g-3">
+      <div class="col-lg-8">
+        <label class="form-label">Товар</label>
+        {{ form.product }}
+      </div>
+      <div class="col-lg-4">
+        <label class="form-label">Лот (опційно)</label>
+        {{ form.lot }}
+        <div class="form-text">Якщо не вибрати лот — при списанні підемо FIFO по доступних лотах.</div>
+      </div>
+
+      <div class="col-lg-3">
+        <label class="form-label">Δ кількість</label>
+        {{ form.qty_delta }}
+        <div class="form-text">Напр.: -3 списання, +5 надлишок.</div>
+      </div>
+
+      <div class="col-lg-9">
+        <label class="form-label">Причина / коментар</label>
+        {{ form.note }}
+      </div>
+    </div>
+
+    <div class="mt-4 d-flex gap-2">
+      <button class="btn btn-primary px-4" type="submit">Застосувати</button>
+      <a class="btn btn-outline-secondary px-4" href="{% url 'warehouse:dashboard' %}">Скасувати</a>
+    </div>
+  </div>
+</form>
+{% endblock %}

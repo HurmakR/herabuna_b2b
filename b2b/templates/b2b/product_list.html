@@ -97,12 +97,11 @@
                        value="{{ p.cost_price|default_if_none:0|unlocalize }}">
               </div>
               <div class="col-12 col-sm-6">
-                <label class="form-label small text-muted">Залишок, шт</label>
-                <input type="number" step="1" name="stock_qty"
-                       class="form-control form-control-sm"
-                       value="{{ p.stock_qty|default_if_none:0 }}">
+                 <label class="form-label small text-muted">Залишок</label>
+                 <div class="small text-muted mt-1">В наявності: <strong>{{ p.stock_qty }}</strong> шт</div>
+                 <div class="small text-muted">Склад керується через модуль “Склад”.</div>
               </div>
-              <div class="col-12 col-sm-6 d-flex align-items-center gap-2 mt-1">
+              <div class="col-12 col-sm-6 d-flex flex-wrap align-items-center gap-2 mt-1">
                 <div class="form-check">
                   <input class="form-check-input" type="checkbox" name="is_active" id="a{{ p.id }}" {% if p.is_active %}checked{% endif %}>
                   <label class="form-check-label small" for="a{{ p.id }}">активний</label>

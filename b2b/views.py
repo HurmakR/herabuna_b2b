@@ -623,25 +623,27 @@ def order_admin_action(request, order_id: int, action: str):
 @user_passes_test(_is_staff)
 @require_http_methods(["POST"])
 def product_update_inline(request, product_id: int):
-    """Staff inline update for price/stock/active/cost from catalog list."""
+    """Staff inline update for prices/active from catalog list (stock is managed by warehouse)."""
     p = get_object_or_404(Product, id=product_id)
+
     # Wholesale selling price
     try:
         p.wholesale_price = Decimal(request.POST.get("wholesale_price", p.wholesale_price))
     except Exception:
         pass
-    # Purchase cost price
+
+    # Purchase cost price (for quick reference; real COGS is computed from lots)
     try:
         p.cost_price = Decimal(request.POST.get("cost_price", p.cost_price))
     except Exception:
         pass
-    # Stock
-    try:
-        p.stock_qty = int(request.POST.get("stock_qty", p.stock_qty))
-    except Exception:
-        pass
+
+    # Stock editing is intentionally disabled (warehouse / lots control stock movements).
+    if "stock_qty" in request.POST:
+        messages.info(request, "Зміна залишків вимкнена. Оприбуткування/списання робиться у 'Склад'.")
+
     p.is_active = bool(request.POST.get("is_active"))
-    p.save(update_fields=["wholesale_price", "cost_price", "stock_qty", "is_active"])
+    p.save(update_fields=["wholesale_price", "cost_price", "is_active"])
     messages.success(request, f"Збережено: {p.sku}")
     return redirect(_safe_next_url(request))
 

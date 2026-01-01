@@ -1,0 +1,53 @@
+{% extends "b2b/base.html" %}
+{% block title %}Лоти — {{ product.sku }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <div>
+    <h1 class="h4 mb-0">Лоти товару</h1>
+    <div class="text-muted small">{{ product.sku }} — {{ product.name }}</div>
+  </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="{% url 'warehouse:dashboard' %}">Назад</a>
+    <a class="btn btn-primary" href="{% url 'warehouse:receive' %}?product={{ product.id }}">Оприбуткувати</a>
+    <a class="btn btn-outline-warning" href="{% url 'warehouse:adjust' %}?product={{ product.id }}">Коригування</a>
+  </div>
+</div>
+
+<div class="card shadow-sm border-0">
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>ID</th>
+            <th>Дата</th>
+            <th class="text-end">Вхідна, грн</th>
+            <th class="text-end">In</th>
+            <th class="text-end">Reserved</th>
+            <th class="text-end">Out</th>
+            <th class="text-end">Available</th>
+            <th>Reference</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for lot in lots %}
+          <tr>
+            <td class="text-nowrap">#{{ lot.id }}</td>
+            <td class="text-nowrap">{{ lot.received_at|date:"d.m.Y H:i" }}</td>
+            <td class="text-end">{{ lot.unit_cost|floatformat:2 }}</td>
+            <td class="text-end">{{ lot.qty_in }}</td>
+            <td class="text-end">{{ lot.qty_reserved }}</td>
+            <td class="text-end">{{ lot.qty_out }}</td>
+            <td class="text-end fw-semibold">{{ lot.qty_available }}</td>
+            <td>{{ lot.reference|default:"—" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="8" class="text-center text-muted py-4">Лотів поки немає.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
