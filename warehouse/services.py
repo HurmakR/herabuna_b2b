@@ -9,7 +9,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from b2b.models import Order, OrderItem, Product
-from .models import InventoryLot, InventoryMove, InventoryReservation, recompute_product_stock
+from .models import InventoryLot, InventoryMove, InventoryReservation, recompute_product_stock, InboundReceipt, InboundReceiptLine
 
 
 class WarehouseError(Exception):
@@ -23,42 +23,47 @@ class ReserveResult:
 
 
 @transaction.atomic
-def receive_lot(*, product, qty: int, unit_cost, reference: str = "", note: str = "", user=None):
-    # Create lot
-    lot = InventoryLot(
+def receive_lot(
+    *,
+    product,
+    qty: int,
+    unit_cost,
+    reference: str = "",
+    note: str = "",
+    supplier: str = "",
+    currency: str = "UAH",
+    external_ref: str = "",
+    created_by=None,
+):
+    """
+    Create a new inbound lot and register an IN move.
+    Backward-compatible: all extra fields are optional.
+    """
+    qty = int(qty)
+    if qty <= 0:
+        raise ValueError("qty must be positive")
+
+    lot = InventoryLot.objects.create(
         product=product,
-        unit_cost=unit_cost,
         qty_in=qty,
-        qty_out=0,
-        qty_reserved=0,
+        unit_cost=unit_cost,
         reference=reference or "",
+        note=note or "",
+        supplier=supplier or "",
+        currency=currency or "UAH",
+        external_ref=external_ref or "",
     )
 
-    # Save optional note if the model has this field
-    if hasattr(lot, "note"):
-        lot.note = note or ""
-    lot.save()
-
-    # Create move IN
-    move = InventoryMove(
-        move_type="IN",
+    InventoryMove.objects.create(
+        move_type=InventoryMove.MOVE_IN if hasattr(InventoryMove, "MOVE_IN") else "IN",
         product=product,
         lot=lot,
         qty=qty,
+        note=reference or note or "",
         created_at=timezone.now(),
     )
 
-    # Save optional note/created_by if those fields exist on the model
-    if hasattr(move, "note"):
-        move.note = note or reference or ""
-    if hasattr(move, "created_by"):
-        move.created_by = user
-    move.save()
-
-    # Update aggregate stock on Product (single source for catalog availability)
-    product.stock_qty = (product.stock_qty or 0) + int(qty)
-    product.save(update_fields=["stock_qty"])
-
+    recompute_product_stock(product.id)
     return lot
 
 
@@ -299,3 +304,56 @@ def adjust_stock(*, product: Product, qty_delta: int, lot: InventoryLot | None =
     mv.save()
 
     recompute_product_stock(product.id)
+
+
+@transaction.atomic
+def receive_receipt(
+    *,
+    created_by,
+    supplier: str,
+    external_ref: str,
+    note: str,
+    currency: str,
+    received_date,
+    lines: list[dict],
+) -> InboundReceipt:
+    """
+    Create an inbound receipt with multiple lines and create lots for each line.
+    Each line becomes a separate lot (FIFO-friendly) with its own unit cost.
+    """
+    receipt = InboundReceipt.objects.create(
+        supplier=supplier or "",
+        external_ref=external_ref or "",
+        note=note or "",
+        currency=currency or "UAH",
+        received_date=received_date or timezone.now().date(),
+    )
+
+    for row in lines:
+        product = row["product"]
+        qty = int(row["qty"])
+        unit_cost = row["unit_cost"]
+
+        line = InboundReceiptLine.objects.create(
+            receipt=receipt,
+            product=product,
+            qty=qty,
+            unit_cost=unit_cost,
+        )
+
+        lot = receive_lot(
+            product=product,
+            qty=qty,
+            unit_cost=unit_cost,
+            reference=receipt.external_ref or f"receipt#{receipt.id}",
+            note=receipt.note or "",
+            supplier=receipt.supplier or "",
+            currency=receipt.currency or "UAH",
+            external_ref=receipt.external_ref or "",
+            created_by=created_by,
+        )
+
+        line.created_lot = lot
+        line.save(update_fields=["created_lot"])
+
+    return receipt

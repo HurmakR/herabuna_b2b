@@ -1,0 +1,101 @@
+{% extends "b2b/base.html" %}
+{% block title %}Оприбуткування накладної — Herabuna B2B{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 mb-0">Оприбуткування (накладна)</h1>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'warehouse:dashboard' %}">Назад</a>
+</div>
+
+<form method="post" class="card shadow-sm border-0">
+  {% csrf_token %}
+  <div class="card-body">
+    <div class="row g-3 mb-3">
+      <div class="col-md-4">
+        <label class="form-label">Постачальник</label>
+        <input name="supplier" class="form-control" placeholder="Напр. Old Ghost / Loonva / Huashi">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Накладна / інвойс</label>
+        <input name="external_ref" class="form-control" placeholder="№ або референс">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Валюта</label>
+        <select name="currency" class="form-select">
+          <option value="UAH" selected>UAH</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Дата надходження</label>
+        <input type="date" name="received_date" class="form-control">
+      </div>
+      <div class="col-12">
+        <label class="form-label">Нотатка</label>
+        <input name="note" class="form-control" placeholder="Коментар до накладної">
+      </div>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h2 class="h6 mb-0">Рядки накладної</h2>
+      <button type="button" class="btn btn-outline-primary btn-sm" id="addRowBtn">+ Додати рядок</button>
+    </div>
+
+    {{ formset.management_form }}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead class="table-light">
+          <tr>
+            <th style="min-width: 420px;">Товар</th>
+            <th style="width: 140px;" class="text-end">К-сть</th>
+            <th style="width: 180px;" class="text-end">Вхідна ціна</th>
+            <th style="width: 90px;" class="text-center">Del</th>
+          </tr>
+        </thead>
+        <tbody id="linesBody">
+          {% for f in formset.forms %}
+          <tr class="line-row">
+            <td>{{ f.product }}</td>
+            <td class="text-end">{{ f.qty }}</td>
+            <td class="text-end">{{ f.unit_cost }}</td>
+            <td class="text-center">{% if f.DELETE %}{{ f.DELETE }}{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="d-flex gap-2">
+      <button class="btn btn-primary">Оприбуткувати накладну</button>
+      <a class="btn btn-outline-secondary" href="{% url 'warehouse:dashboard' %}">Скасувати</a>
+    </div>
+  </div>
+</form>
+
+<script>
+(function () {
+  const addBtn = document.getElementById('addRowBtn');
+  const body = document.getElementById('linesBody');
+  const totalForms = document.getElementById('id_form-TOTAL_FORMS');
+
+  if (!addBtn || !body || !totalForms) return;
+
+  addBtn.addEventListener('click', function () {
+    const idx = parseInt(totalForms.value, 10);
+    const lastRow = body.querySelector('tr.line-row:last-child');
+    if (!lastRow) return;
+
+    const clone = lastRow.cloneNode(true);
+
+    clone.querySelectorAll('input, select, textarea').forEach(el => {
+      if (el.name) el.name = el.name.replace(/form-\d+-/g, `form-${idx}-`);
+      if (el.id) el.id = el.id.replace(/form-\d+-/g, `form-${idx}-`);
+      if (el.type === 'checkbox') el.checked = false;
+      else el.value = '';
+    });
+
+    body.appendChild(clone);
+    totalForms.value = idx + 1;
+  });
+})();
+</script>
+{% endblock %}

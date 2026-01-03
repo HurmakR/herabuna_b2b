@@ -9,7 +9,9 @@ from b2b.models import Product
 from .models import InventoryLot
 from .forms import ReceiveLotForm, AdjustStockForm
 from . import services as wh
-
+from django.forms import modelformset_factory
+from .models import InboundReceiptLine
+from .services import receive_receipt
 
 @staff_member_required
 def dashboard(request):
@@ -125,3 +127,52 @@ def adjust(request):
         form = AdjustStockForm(initial=initial)
 
     return render(request, "warehouse/adjust.html", {"form": form})
+
+@staff_member_required
+def receive_receipt_view(request):
+    LineFormSet = modelformset_factory(
+        InboundReceiptLine,
+        fields=("product", "qty", "unit_cost"),
+        extra=10,
+        can_delete=True,
+    )
+
+    if request.method == "POST":
+        supplier = request.POST.get("supplier", "")
+        external_ref = request.POST.get("external_ref", "")
+        note = request.POST.get("note", "")
+        currency = request.POST.get("currency", "UAH")
+        received_date = request.POST.get("received_date") or None
+
+        formset = LineFormSet(request.POST, queryset=InboundReceiptLine.objects.none())
+        if formset.is_valid():
+            lines = []
+            for form in formset:
+                if not form.cleaned_data or form.cleaned_data.get("DELETE"):
+                    continue
+                lines.append({
+                    "product": form.cleaned_data["product"],
+                    "qty": form.cleaned_data["qty"],
+                    "unit_cost": form.cleaned_data["unit_cost"],
+                })
+
+            if not lines:
+                messages.error(request, "Додай хоча б один рядок товару.")
+                return render(request, "warehouse/receive_receipt.html", {"formset": formset})
+
+            receipt = receive_receipt(
+                created_by=request.user,
+                supplier=supplier,
+                external_ref=external_ref,
+                note=note,
+                currency=currency,
+                received_date=received_date,
+                lines=lines,
+            )
+            messages.success(request, f"Оприбутковано накладну: {receipt}")
+            return redirect("warehouse:dashboard")
+
+        return render(request, "warehouse/receive_receipt.html", {"formset": formset})
+
+    formset = LineFormSet(queryset=InboundReceiptLine.objects.none())
+    return render(request, "warehouse/receive_receipt.html", {"formset": formset})
