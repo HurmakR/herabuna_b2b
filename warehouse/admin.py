@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import InventoryLot, InventoryMove, InventoryReservation
+from .models import InventoryLot, InventoryMove, InventoryReservation, InboundReceipt, InboundReceiptLine
 
 
 @admin.register(InventoryLot)
@@ -85,3 +85,19 @@ class InventoryReservationAdmin(admin.ModelAdmin):
     def product_sku(self, obj):
         p = getattr(obj.order_item, "product", None)
         return getattr(p, "sku", "")
+
+
+class InboundReceiptLineInline(admin.TabularInline):
+    model = InboundReceiptLine
+    extra = 0
+    raw_id_fields = ("product", "created_lot")
+
+
+@admin.register(InboundReceipt)
+class InboundReceiptAdmin(admin.ModelAdmin):
+    list_display = ("id", "received_date", "supplier", "external_ref", "currency", "note", "created_at")
+    list_filter = ("currency", "received_date", "created_at")
+    search_fields = ("supplier", "external_ref", "note")
+    ordering = ("-received_date", "-id")
+    readonly_fields = ("created_at",)
+    inlines = (InboundReceiptLineInline,)

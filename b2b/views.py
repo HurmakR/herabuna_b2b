@@ -292,7 +292,7 @@ def add_to_cart_with_attrs(request, product_id: int):
         if not variant:
             messages.error(request, "Комбінацію не знайдено. Оберіть доступні значення.")
             return redirect(_safe_next_url(request, default_name="b2b:product_detail"))
-        available = max(0, int(variant.stock_qty))
+        available = max(0, min(int(product.stock_qty or 0), int(variant.stock_qty or 0)))
     if available <= 0:
         messages.info(request, "Немає в наявності для обраної комбінації.")
         return redirect(_safe_next_url(request))
@@ -329,7 +329,10 @@ def cart_update_item(request, item_id: int):
     item = get_object_or_404(OrderItem.objects.select_related("order", "product", "variant"), id=item_id)
     if item.order.dealer_id != request.user.id or item.order.status != "draft":
         return HttpResponseForbidden("Forbidden")
-    available = max(0, int(item.variant.stock_qty if item.variant else item.product.stock_qty))
+    if item.variant:
+        available = max(0, min(int(item.product.stock_qty or 0), int(item.variant.stock_qty or 0)))
+    else:
+        available = max(0, int(item.product.stock_qty or 0))
     op = request.POST.get("op")
     error = None
     if op == "inc":
@@ -400,18 +403,19 @@ def submit_order(request):
         return redirect("b2b:product_list")
     # Check availability
     for it in order.items.select_related("product", "variant"):
-        available = max(0, int(it.variant.stock_qty if it.variant else it.product.stock_qty))
+        if it.variant:
+            available = max(0, min(int(it.product.stock_qty or 0), int(it.variant.stock_qty or 0)))
+        else:
+            available = max(0, int(it.product.stock_qty or 0))
         if available < it.qty:
             messages.error(request, f"Недостатньо на складі для {it.product.sku}. Доступно: {available}")
             return redirect("b2b:cart")
-    # Reserve locally
-    for it in order.items.select_related("product", "variant"):
-        if it.variant:
-            it.variant.stock_qty -= it.qty
-            it.variant.save(update_fields=["stock_qty"])
-        else:
-            it.product.stock_qty -= it.qty
-            it.product.save(update_fields=["stock_qty"])
+    # Reserve locally via FIFO lots (warehouse)
+    try:
+        wh.reserve_order(order)
+    except Exception as e:
+        messages.error(request, f"Помилка резервування: {e}")
+        return redirect("b2b:cart")
     order.status = "submitted"
     order.recalc()
     order.save(update_fields=["status", "subtotal", "total"])
@@ -747,7 +751,10 @@ def order_checkout_confirm(request):
 
     # Check availability
     for it in order.items.select_related("product", "variant"):
-        available = max(0, int(it.variant.stock_qty if it.variant else it.product.stock_qty))
+        if it.variant:
+            available = max(0, min(int(it.product.stock_qty or 0), int(it.variant.stock_qty or 0)))
+        else:
+            available = max(0, int(it.product.stock_qty or 0))
         if available < it.qty:
             messages.error(request, f"Недостатньо на складі для {it.product.sku}. Доступно: {available}")
             return redirect("b2b:cart")

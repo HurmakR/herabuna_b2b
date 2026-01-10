@@ -1,7 +1,9 @@
 from decimal import Decimal
+from datetime import date
 
 from django.contrib.admin.views.decorators import staff_member_required
 from django.db.models import Sum, F, DecimalField, ExpressionWrapper, Q
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
 
@@ -21,8 +23,15 @@ def dashboard(request):
     if q:
         products = products.filter(Q(sku__icontains=q) | Q(name__icontains=q))
 
-    stock_cost_expr = ExpressionWrapper(
-        F("stock_qty") * F("cost_price"),
+    # Real inventory valuation: sum of (available_qty_in_lot * unit_cost) across FIFO lots.
+    stock_cost_expr = Coalesce(
+        Sum(
+            ExpressionWrapper(
+                (F("lots__qty_in") - F("lots__qty_reserved") - F("lots__qty_out")) * F("lots__unit_cost"),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            )
+        ),
+        Decimal("0"),
         output_field=DecimalField(max_digits=14, decimal_places=2),
     )
     stock_wholesale_expr = ExpressionWrapper(
@@ -30,10 +39,11 @@ def dashboard(request):
         output_field=DecimalField(max_digits=14, decimal_places=2),
     )
 
-    products = products.annotate(
-        stock_cost=stock_cost_expr,
-        stock_wholesale=stock_wholesale_expr,
-    ).order_by("brand__name", "name")[:500]
+    products = (
+        products
+        .annotate(stock_cost=stock_cost_expr, stock_wholesale=stock_wholesale_expr)
+        .order_by("brand__name", "name")[:500]
+    )
 
     totals = products.aggregate(
         total_qty=Sum("stock_qty"),
@@ -89,7 +99,7 @@ def receive(request):
                     unit_cost=form.cleaned_data["unit_cost"],
                     reference=form.cleaned_data.get("reference") or "",
                     note=form.cleaned_data.get("note") or "",
-                    user=request.user,
+                    created_by=request.user,
                 )
                 messages.success(request, "Оприбуткування виконано.")
                 return redirect("warehouse:dashboard")
@@ -142,7 +152,13 @@ def receive_receipt_view(request):
         external_ref = request.POST.get("external_ref", "")
         note = request.POST.get("note", "")
         currency = request.POST.get("currency", "UAH")
-        received_date = request.POST.get("received_date") or None
+        received_date_raw = (request.POST.get("received_date") or "").strip() or None
+        received_date = None
+        if received_date_raw:
+            try:
+                received_date = date.fromisoformat(received_date_raw)
+            except Exception:
+                received_date = None
 
         formset = LineFormSet(request.POST, queryset=InboundReceiptLine.objects.none())
         if formset.is_valid():

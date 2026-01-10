@@ -9,7 +9,14 @@ from django.db.models import F
 from django.utils import timezone
 
 from b2b.models import Order, OrderItem, Product
-from .models import InventoryLot, InventoryMove, InventoryReservation, recompute_product_stock, InboundReceipt, InboundReceiptLine
+from .models import (
+    InboundReceipt,
+    InboundReceiptLine,
+    InventoryLot,
+    InventoryMove,
+    InventoryReservation,
+    recompute_product_stock,
+)
 
 
 class WarehouseError(Exception):
@@ -22,10 +29,15 @@ class ReserveResult:
     reservations: list[InventoryReservation]
 
 
+def _recompute_products_stock(product_ids: Iterable[int]) -> None:
+    for pid in sorted({int(p) for p in product_ids if p}):
+        recompute_product_stock(pid)
+
+
 @transaction.atomic
 def receive_lot(
     *,
-    product,
+    product: Product,
     qty: int,
     unit_cost,
     reference: str = "",
@@ -34,11 +46,9 @@ def receive_lot(
     currency: str = "UAH",
     external_ref: str = "",
     created_by=None,
+    recompute: bool = True,
 ):
-    """
-    Create a new inbound lot and register an IN move.
-    Backward-compatible: all extra fields are optional.
-    """
+    """Create a new inbound lot and register an IN move."""
     qty = int(qty)
     if qty <= 0:
         raise ValueError("qty must be positive")
@@ -55,7 +65,7 @@ def receive_lot(
     )
 
     InventoryMove.objects.create(
-        move_type=InventoryMove.MOVE_IN if hasattr(InventoryMove, "MOVE_IN") else "IN",
+        move_type=InventoryMove.MOVE_IN,
         product=product,
         lot=lot,
         qty=qty,
@@ -63,8 +73,164 @@ def receive_lot(
         created_at=timezone.now(),
     )
 
-    recompute_product_stock(product.id)
+    if recompute:
+        recompute_product_stock(product.id)
     return lot
+
+
+def _iter_fifo_lots(product: Product) -> Iterable[InventoryLot]:
+    return (
+        InventoryLot.objects.filter(product=product)
+        .order_by("received_at", "id")
+        .select_for_update()
+    )
+
+
+def _release_existing_reservations(*, order: Order, reason: str) -> set[int]:
+    """Release all existing reservations for an order and return affected product ids."""
+    product_ids: set[int] = set()
+    res_qs = (
+        InventoryReservation.objects
+        .select_related("lot", "order_item")
+        .filter(order_item__order=order)
+    )
+
+    # Important: adjust lot.qty_reserved BEFORE deleting reservations.
+    for res in res_qs:
+        lot = InventoryLot.objects.select_for_update().get(id=res.lot_id)
+        qty = int(res.qty)
+
+        lot.qty_reserved = F("qty_reserved") - qty
+        lot.save(update_fields=["qty_reserved"])
+        product_ids.add(lot.product_id)
+
+        InventoryMove.objects.create(
+            move_type=InventoryMove.MOVE_RELEASE,
+            product=lot.product,
+            lot=lot,
+            order=order,
+            order_item=res.order_item,
+            qty=qty,
+            note=reason,
+        )
+
+    res_qs.delete()
+    return product_ids
+
+
+@transaction.atomic
+def reserve_order(order: Order) -> None:
+    """Reserve stock for a *draft* order using FIFO lots."""
+    if order.status != "draft":
+        return
+
+    touched: set[int] = set()
+
+    # If the order is being re-reserved (e.g. cart changed), undo previous reservations first.
+    touched |= _release_existing_reservations(order=order, reason="re-reserve")
+
+    for item in order.items.select_related("product", "variant").all():
+        touched |= _reserve_order_item(item)
+
+    _recompute_products_stock(touched)
+    # Order.recalc() already persists subtotal/total.
+    order.recalc()
+
+
+def _reserve_order_item(item: OrderItem) -> set[int]:
+    product = item.product
+    qty_need = int(item.qty or 0)
+    if qty_need <= 0:
+        return set()
+
+    reserved_total = 0
+    touched: set[int] = {product.id}
+
+    for lot in _iter_fifo_lots(product):
+        if reserved_total >= qty_need:
+            break
+
+        can = min(lot.qty_available, qty_need - reserved_total)
+        if can <= 0:
+            continue
+
+        lot.qty_reserved = F("qty_reserved") + can
+        lot.save(update_fields=["qty_reserved"])
+
+        res = InventoryReservation.objects.create(lot=lot, order_item=item, qty=can)
+
+        InventoryMove.objects.create(
+            move_type=InventoryMove.MOVE_RESERVE,
+            product=product,
+            lot=lot,
+            order=item.order,
+            order_item=item,
+            qty=-can,
+            note="reserve",
+        )
+
+        reserved_total += can
+
+    if reserved_total < qty_need:
+        raise WarehouseError(f"Not enough stock for {product.sku}. Need {qty_need}, reserved {reserved_total}")
+
+    return touched
+
+
+@transaction.atomic
+def cancel_order(order: Order) -> None:
+    """Release reservations for an order (any status) and recompute product stock."""
+    touched = _release_existing_reservations(order=order, reason="cancel")
+    _recompute_products_stock(touched)
+    # Order.recalc() already persists subtotal/total.
+    order.recalc()
+
+
+@transaction.atomic
+def ship_order(order: Order) -> None:
+    """Consume reserved lots and freeze COGS on order items."""
+    res_qs = InventoryReservation.objects.select_related("lot", "order_item").filter(order_item__order=order)
+    if not res_qs.exists():
+        # Shipping without reservations is dangerous. Only allow if it's still a draft.
+        if order.status == "draft":
+            reserve_order(order)
+            res_qs = InventoryReservation.objects.select_related("lot", "order_item").filter(order_item__order=order)
+        if not res_qs.exists():
+            raise WarehouseError("Order has no reservations; cannot ship")
+
+    item_totals: dict[int, Decimal] = {}
+    item_qty: dict[int, int] = {}
+    touched: set[int] = set()
+
+    for res in res_qs:
+        lot = InventoryLot.objects.select_for_update().get(id=res.lot_id)
+        qty = int(res.qty)
+
+        lot.qty_reserved = F("qty_reserved") - qty
+        lot.qty_out = F("qty_out") + qty
+        lot.save(update_fields=["qty_reserved", "qty_out"])
+        touched.add(lot.product_id)
+
+        InventoryMove.objects.create(
+            move_type=InventoryMove.MOVE_SHIP,
+            product=lot.product,
+            lot=lot,
+            order=order,
+            order_item=res.order_item,
+            qty=-qty,
+            note="ship",
+        )
+
+        item_totals[res.order_item_id] = item_totals.get(res.order_item_id, Decimal("0")) + (lot.unit_cost * qty)
+        item_qty[res.order_item_id] = item_qty.get(res.order_item_id, 0) + qty
+
+    for item_id, total in item_totals.items():
+        qty = item_qty.get(item_id, 0)
+        unit = (total / qty) if qty else Decimal("0")
+        OrderItem.objects.filter(id=item_id).update(cost_unit=unit, cost_total=total)
+
+    res_qs.delete()
+    _recompute_products_stock(touched)
 
 
 @transaction.atomic
@@ -96,136 +262,10 @@ def adjust_lot(*, lot: InventoryLot, delta: int, note: str = "") -> InventoryLot
     return lot
 
 
-def _iter_fifo_lots(product: Product) -> Iterable[InventoryLot]:
-    return InventoryLot.objects.filter(product=product).order_by("received_at", "id").select_for_update()
-
-
-@transaction.atomic
-def reserve_order(order: Order) -> None:
-    if order.status != "draft":
-        return
-
-    InventoryReservation.objects.filter(order_item__order=order).delete()
-
-    for item in order.items.select_related("product", "variant").all():
-        _reserve_order_item(item)
-
-    order.recalc()
-    order.save(update_fields=["subtotal", "total"])
-
-
-def _reserve_order_item(item: OrderItem) -> ReserveResult:
-    product = item.product
-    qty_need = int(item.qty or 0)
-    if qty_need <= 0:
-        return ReserveResult(0, [])
-
-    reserved_total = 0
-    reservations: list[InventoryReservation] = []
-
-    for lot in _iter_fifo_lots(product):
-        if reserved_total >= qty_need:
-            break
-        can = min(lot.qty_available, qty_need - reserved_total)
-        if can <= 0:
-            continue
-
-        lot.qty_reserved = F("qty_reserved") + can
-        lot.save(update_fields=["qty_reserved"])
-        lot.refresh_from_db(fields=["qty_in", "qty_reserved", "qty_out"])
-
-        res = InventoryReservation.objects.create(lot=lot, order_item=item, qty=can)
-        reservations.append(res)
-
-        InventoryMove.objects.create(
-            move_type=InventoryMove.MOVE_RESERVE,
-            product=product,
-            lot=lot,
-            order=item.order,
-            order_item=item,
-            qty=-can,
-            note="reserve",
-        )
-
-        reserved_total += can
-
-    recompute_product_stock(product.id)
-
-    if reserved_total < qty_need:
-        raise WarehouseError(f"Not enough stock for {product.sku}. Need {qty_need}, reserved {reserved_total}")
-
-    return ReserveResult(reserved_total, reservations)
-
-
-@transaction.atomic
-def cancel_order(order: Order) -> None:
-    res_qs = InventoryReservation.objects.select_related("lot", "order_item").filter(order_item__order=order)
-    for res in res_qs:
-        lot = res.lot
-        lot.qty_reserved = F("qty_reserved") - int(res.qty)
-        lot.save(update_fields=["qty_reserved"])
-        InventoryMove.objects.create(
-            move_type=InventoryMove.MOVE_RELEASE,
-            product=lot.product,
-            lot=lot,
-            order=order,
-            order_item=res.order_item,
-            qty=int(res.qty),
-            note="cancel",
-        )
-        recompute_product_stock(lot.product_id)
-
-    res_qs.delete()
-    order.recalc()
-    order.save(update_fields=["subtotal", "total"])
-
-
-@transaction.atomic
-def ship_order(order: Order) -> None:
-    res_qs = InventoryReservation.objects.select_related("lot", "order_item").filter(order_item__order=order)
-    if not res_qs.exists():
-        reserve_order(order)
-        res_qs = InventoryReservation.objects.select_related("lot", "order_item").filter(order_item__order=order)
-
-    item_totals: dict[int, Decimal] = {}
-    item_qty: dict[int, int] = {}
-
-    for res in res_qs:
-        lot = res.lot
-        qty = int(res.qty)
-
-        lot.qty_reserved = F("qty_reserved") - qty
-        lot.qty_out = F("qty_out") + qty
-        lot.save(update_fields=["qty_reserved", "qty_out"])
-
-        InventoryMove.objects.create(
-            move_type=InventoryMove.MOVE_SHIP,
-            product=lot.product,
-            lot=lot,
-            order=order,
-            order_item=res.order_item,
-            qty=-qty,
-            note="ship",
-        )
-
-        item_totals[res.order_item_id] = item_totals.get(res.order_item_id, Decimal("0")) + (lot.unit_cost * qty)
-        item_qty[res.order_item_id] = item_qty.get(res.order_item_id, 0) + qty
-
-        recompute_product_stock(lot.product_id)
-
-    for item_id, total in item_totals.items():
-        qty = item_qty.get(item_id, 0)
-        unit = (total / qty) if qty else Decimal("0")
-        OrderItem.objects.filter(id=item_id).update(cost_unit=unit, cost_total=total)
-
-    res_qs.delete()
-
-# --- add below at the end of warehouse/services.py ---
-
 @transaction.atomic
 def adjust_stock(*, product: Product, qty_delta: int, lot: InventoryLot | None = None, note: str = "", user=None) -> None:
-    """
-    Inventory adjustment (ADJ).
+    """Inventory adjustment (ADJ).
+
     - If `lot` is provided: apply delta to that lot.
     - If `lot` is not provided and delta < 0: consume FIFO lots until delta is satisfied.
     - If `lot` is not provided and delta > 0: create a new lot as an adjustment lot.
@@ -270,12 +310,12 @@ def adjust_stock(*, product: Product, qty_delta: int, lot: InventoryLot | None =
                 mv.created_by = user
             mv.save()
 
-            recompute_product_stock(fifo_lot.product_id)
             remaining -= take
 
         if remaining > 0:
             raise WarehouseError("Not enough available stock across lots to decrease")
 
+        recompute_product_stock(product.id)
         return
 
     # Positive adjustment: create a new lot (so we keep audit trail via lots)
@@ -317,10 +357,7 @@ def receive_receipt(
     received_date,
     lines: list[dict],
 ) -> InboundReceipt:
-    """
-    Create an inbound receipt with multiple lines and create lots for each line.
-    Each line becomes a separate lot (FIFO-friendly) with its own unit cost.
-    """
+    """Create an inbound receipt with multiple lines and create lots for each line."""
     receipt = InboundReceipt.objects.create(
         supplier=supplier or "",
         external_ref=external_ref or "",
@@ -328,6 +365,8 @@ def receive_receipt(
         currency=currency or "UAH",
         received_date=received_date or timezone.now().date(),
     )
+
+    touched: set[int] = set()
 
     for row in lines:
         product = row["product"]
@@ -351,9 +390,12 @@ def receive_receipt(
             currency=receipt.currency or "UAH",
             external_ref=receipt.external_ref or "",
             created_by=created_by,
+            recompute=False,
         )
+        touched.add(product.id)
 
         line.created_lot = lot
         line.save(update_fields=["created_lot"])
 
+    _recompute_products_stock(touched)
     return receipt
