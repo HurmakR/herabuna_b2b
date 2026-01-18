@@ -137,6 +137,34 @@ def reserve_order(order: Order) -> None:
     order.recalc()
 
 
+@transaction.atomic
+def ensure_order_reserved(order: Order) -> None:
+    """Make sure an order has FIFO reservations.
+
+    Why: statuses can be changed from admin actions; if reservations were not created
+    (or were released) we must reserve again so stock numbers are consistent.
+
+    - For draft orders: performs full re-reserve.
+    - For submitted/pending_payment: reserves only if there are no reservations yet.
+    """
+    if order.status == "draft":
+        reserve_order(order)
+        return
+
+    if order.status not in {"submitted", "pending_payment"}:
+        return
+
+    if InventoryReservation.objects.filter(order_item__order=order).exists():
+        return
+
+    touched: set[int] = set()
+    for item in order.items.select_related("product", "variant").all():
+        touched |= _reserve_order_item(item)
+
+    _recompute_products_stock(touched)
+    order.recalc()
+
+
 def _reserve_order_item(item: OrderItem) -> set[int]:
     product = item.product
     qty_need = int(item.qty or 0)
@@ -191,10 +219,9 @@ def ship_order(order: Order) -> None:
     """Consume reserved lots and freeze COGS on order items."""
     res_qs = InventoryReservation.objects.select_related("lot", "order_item").filter(order_item__order=order)
     if not res_qs.exists():
-        # Shipping without reservations is dangerous. Only allow if it's still a draft.
-        if order.status == "draft":
-            reserve_order(order)
-            res_qs = InventoryReservation.objects.select_related("lot", "order_item").filter(order_item__order=order)
+        # Shipping without reservations is dangerous. Try to create reservations only for allowed statuses.
+        ensure_order_reserved(order)
+        res_qs = InventoryReservation.objects.select_related("lot", "order_item").filter(order_item__order=order)
         if not res_qs.exists():
             raise WarehouseError("Order has no reservations; cannot ship")
 

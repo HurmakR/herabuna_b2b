@@ -32,18 +32,28 @@
                 {{ admin_new_orders }}
               </span>
             {% endif %}
-            <li class="nav-item dropdown">
-              <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                Склад
-              </a>
-              <ul class="dropdown-menu">
-                <li><a class="dropdown-item" href="{% url 'warehouse:dashboard' %}">Dashboard</a></li>
-                <li><a class="dropdown-item" href="{% url 'warehouse:receive' %}">Оприбуткування</a></li>
-                <li><a class="dropdown-item" href="{% url 'warehouse:receive_receipt' %}">Оприбуткування (накладна)</a></li>
-                <li><a class="dropdown-item" href="{% url 'warehouse:adjust' %}">Коригування</a></li>
-              </ul>
-            </li>
           </a>
+
+          <div class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              Склад
+            </a>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="{% url 'warehouse:dashboard' %}">Журнал накладних</a></li>
+              <li><a class="dropdown-item" href="{% url 'warehouse:receipt_new' %}">Нова накладна</a></li>
+              <li><a class="dropdown-item" href="{% url 'warehouse:adjust' %}">Інвентаризація</a></li>
+            </ul>
+          </div>
+
+          <div class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              Звіти
+            </a>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="{% url 'reports:sales_report' %}">Продажі</a></li>
+              <li><a class="dropdown-item" href="{% url 'reports:stock_report' %}">Залишки</a></li>
+            </ul>
+          </div>
         {% endif %}
 
         {% if user.is_authenticated and not user.is_staff %}

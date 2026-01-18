@@ -94,7 +94,7 @@
             <th scope="col">Товар</th>
             <th scope="col">Бренд</th>
             <th scope="col" class="text-end">К-сть</th>
-            <th scope="col" class="text-end">Вхідна, грн</th>
+            <th scope="col" class="text-end">Остання вхідна, грн</th>
             <th scope="col" class="text-end">Гурт, грн</th>
             <th scope="col" class="text-end">Запас по входу</th>
             <th scope="col" class="text-end">Запас по гурту</th>
@@ -107,7 +107,7 @@
             <td>{{ p.name_with_weight }}</td>
             <td>{% if p.brand %}{{ p.brand.name }}{% endif %}</td>
             <td class="text-end">{{ p.stock_qty }}</td>
-            <td class="text-end">{{ p.cost_price|floatformat:2 }}</td>
+            <td class="text-end">{{ p.last_unit_cost|default_if_none:0|floatformat:2 }}</td>
             <td class="text-end">{{ p.wholesale_price|floatformat:2 }}</td>
             <td class="text-end">{{ p.stock_cost|floatformat:2 }}</td>
             <td class="text-end">{{ p.stock_wholesale|floatformat:2 }}</td>

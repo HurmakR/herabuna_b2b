@@ -168,6 +168,24 @@ def product_list(request):
 
     qs = Product.objects.select_related("brand").prefetch_related("categories").all()
 
+    # Dealers should not see products without wholesale price.
+    # Also hide inactive products for non-staff users.
+    if not request.user.is_authenticated or not request.user.is_staff:
+        qs = qs.filter(is_active=True, wholesale_price__gt=0)
+
+    # Staff: show last inbound unit cost from warehouse lots.
+    if request.user.is_authenticated and request.user.is_staff:
+        from django.db.models import OuterRef, Subquery
+        from warehouse.models import InventoryLot
+
+        qs = qs.annotate(
+            last_unit_cost=Subquery(
+                InventoryLot.objects.filter(product_id=OuterRef("pk"))
+                .order_by("-received_at", "-id")
+                .values("unit_cost")[:1]
+            )
+        )
+
     if q:
         qs = qs.filter(Q(name__icontains=q) | Q(sku__icontains=q))
 
@@ -228,6 +246,10 @@ def product_list(request):
 def product_detail(request, product_id: int):
     """Product detail page with variant options and quantity."""
     p = get_object_or_404(Product, id=product_id, is_active=True)
+
+    # Dealers should not access products without wholesale price.
+    if (not request.user.is_authenticated or not request.user.is_staff) and (p.wholesale_price or 0) <= 0:
+        raise Http404
     variant_options = {}
     for v in p.variants.filter(is_active=True):
         for k, val in (v.attributes or {}).items():
@@ -241,6 +263,9 @@ def product_detail(request, product_id: int):
 def add_to_cart(request, product_id):
     """Add simple product with optional qty; enforce stock; stay on same page."""
     product = get_object_or_404(Product, id=product_id, is_active=True)
+    if not request.user.is_staff and (product.wholesale_price or 0) <= 0:
+        messages.error(request, "Для цього товару не встановлена гуртова ціна.")
+        return redirect(_safe_next_url(request))
     available = max(0, int(product.stock_qty))
     if available <= 0:
         messages.info(request, "Немає в наявності.")
@@ -273,6 +298,9 @@ def add_to_cart(request, product_id):
 def add_to_cart_with_attrs(request, product_id: int):
     """Add concrete variant by attributes; enforce stock; stay on same page."""
     product = get_object_or_404(Product, id=product_id, is_active=True)
+    if not request.user.is_staff and (product.wholesale_price or 0) <= 0:
+        messages.error(request, "Для цього товару не встановлена гуртова ціна.")
+        return redirect(_safe_next_url(request))
     order, _ = Order.objects.get_or_create(dealer=request.user, status="draft")
     try:
         qty_req = max(1, int(request.POST.get("qty", "1")))
@@ -297,6 +325,9 @@ def add_to_cart_with_attrs(request, product_id: int):
         messages.info(request, "Немає в наявності для обраної комбінації.")
         return redirect(_safe_next_url(request))
     price = (variant.wholesale_price if variant else product.wholesale_price)
+    if not request.user.is_staff and (price or 0) <= 0:
+        messages.error(request, "Для цього варіанту не встановлена гуртова ціна.")
+        return redirect(_safe_next_url(request))
     item, _ = OrderItem.objects.get_or_create(
         order=order, product=product, variant=variant,
         defaults={"qty": 0, "price": price, "variant_attrs": selected},
@@ -509,6 +540,12 @@ def order_admin_action(request, order_id: int, action: str):
         if order.status != "submitted":
             messages.error(request, "Можна підтвердити лише замовлення у статусі 'Надіслано'.")
             return redirect("b2b:orders_admin")
+        # Ensure FIFO reservations exist so stock levels are updated.
+        try:
+            wh.ensure_order_reserved(order)
+        except Exception as e:
+            messages.error(request, f"Не вдалося зарезервувати залишки: {e}")
+            return redirect("b2b:orders_admin")
         order.status = "pending_payment"
         order.save(update_fields=["status"])
 
@@ -568,6 +605,13 @@ def order_admin_action(request, order_id: int, action: str):
     elif action == "ship":
         if order.status != "pending_payment":
             messages.error(request, "Відвантажити можна лише замовлення, що очікує оплату.")
+            return redirect("b2b:orders_admin")
+
+        # Ensure we have valid reservations before generating TTN.
+        try:
+            wh.ensure_order_reserved(order)
+        except Exception as e:
+            messages.error(request, f"Не вдалося зарезервувати залишки: {e}")
             return redirect("b2b:orders_admin")
 
         # Create TTN first (fail fast if NP rejects)

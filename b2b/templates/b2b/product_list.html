@@ -92,6 +92,9 @@
               </div>
               <div class="col-12 col-sm-6">
                 <label class="form-label small text-muted">Вхідна ціна, грн</label>
+                <div class="small text-muted" style="margin-top:-6px;">
+                  Остання партія: <strong>{{ p.last_unit_cost|default_if_none:0|floatformat:2 }}</strong> грн
+                </div>
                 <input type="number" step="0.01" name="cost_price"
                        class="form-control form-control-sm"
                        value="{{ p.cost_price|default_if_none:0|unlocalize }}">

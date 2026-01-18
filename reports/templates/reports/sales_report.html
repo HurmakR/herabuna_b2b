@@ -49,6 +49,7 @@
         <div class="h3 mb-0 fw-semibold">
           {{ total_sales|default:0|floatformat:2 }} грн
         </div>
+        <div class="small text-muted mt-2">Маржа (лише shipped): <strong>{{ total_margin|default:0|floatformat:2 }}</strong> грн</div>
       </div>
     </div>
   </div>

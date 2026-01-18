@@ -1,48 +1,48 @@
 {% extends "b2b/base.html" %}
-{% block title %}Коригування — Herabuna B2B{% endblock %}
+{% block title %}Інвентаризація — Herabuna B2B{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
   <div>
-    <h1 class="h4 mb-0">Коригування залишків (ADJ)</h1>
-    <div class="text-muted small">Формує складський рух ADJ і впливає на залишки через лоти</div>
+    <h1 class="h4 mb-0">Інвентаризація</h1>
+    <div class="text-muted small">Будь-які виправлення по складу виконуємо лише через інвентаризацію.</div>
   </div>
   <a class="btn btn-outline-secondary" href="{% url 'warehouse:dashboard' %}">Назад</a>
 </div>
 
-<div class="alert alert-warning">
-  <div class="fw-semibold mb-1">Увага</div>
-  Коригування не редагує stock_qty напряму — воно створює рух і змінює лоти.
-</div>
-
 <form method="post" class="card shadow-sm border-0">
+  {% csrf_token %}
   <div class="card-body">
-    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger py-2">{{ form.non_field_errors }}</div>
+    {% endif %}
 
     <div class="row g-3">
-      <div class="col-lg-8">
-        <label class="form-label">Товар</label>
+      <div class="col-md-6">
+        <label class="form-label">{{ form.product.label }}</label>
         {{ form.product }}
+        {% if form.product.errors %}<div class="text-danger small mt-1">{{ form.product.errors|striptags }}</div>{% endif %}
       </div>
-      <div class="col-lg-4">
-        <label class="form-label">Лот (опційно)</label>
-        {{ form.lot }}
-        <div class="form-text">Якщо не вибрати лот — при списанні підемо FIFO по доступних лотах.</div>
-      </div>
-
-      <div class="col-lg-3">
-        <label class="form-label">Δ кількість</label>
+      <div class="col-md-3">
+        <label class="form-label">{{ form.qty_delta.label }}</label>
         {{ form.qty_delta }}
-        <div class="form-text">Напр.: -3 списання, +5 надлишок.</div>
+        <div class="form-text">Позитивне значення = додати, негативне = списати.</div>
+        {% if form.qty_delta.errors %}<div class="text-danger small mt-1">{{ form.qty_delta.errors|striptags }}</div>{% endif %}
       </div>
-
-      <div class="col-lg-9">
-        <label class="form-label">Причина / коментар</label>
+      <div class="col-md-3">
+        <label class="form-label">{{ form.lot.label }}</label>
+        {{ form.lot }}
+        <div class="form-text">Опційно: якщо потрібно скоригувати конкретну партію.</div>
+        {% if form.lot.errors %}<div class="text-danger small mt-1">{{ form.lot.errors|striptags }}</div>{% endif %}
+      </div>
+      <div class="col-12">
+        <label class="form-label">{{ form.note.label }}</label>
         {{ form.note }}
+        {% if form.note.errors %}<div class="text-danger small mt-1">{{ form.note.errors|striptags }}</div>{% endif %}
       </div>
     </div>
 
-    <div class="mt-4 d-flex gap-2">
+    <div class="mt-3 d-flex flex-wrap gap-2">
       <button class="btn btn-primary px-4" type="submit">Застосувати</button>
       <a class="btn btn-outline-secondary px-4" href="{% url 'warehouse:dashboard' %}">Скасувати</a>
     </div>
