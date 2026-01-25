@@ -86,6 +86,19 @@ def _iter_fifo_lots(product: Product) -> Iterable[InventoryLot]:
     )
 
 
+def _iter_lifo_lots(product: Product) -> Iterable[InventoryLot]:
+    """Newest lots first.
+
+    Used for inventory corrections where it's usually preferable to adjust the most
+    recent receipt rather than rewriting history across all old lots.
+    """
+    return (
+        InventoryLot.objects.filter(product=product)
+        .order_by("-received_at", "-id")
+        .select_for_update()
+    )
+
+
 def _release_existing_reservations(*, order: Order, reason: str) -> set[int]:
     """Release all existing reservations for an order and return affected product ids."""
     product_ids: set[int] = set()
@@ -294,8 +307,8 @@ def adjust_stock(*, product: Product, qty_delta: int, lot: InventoryLot | None =
     """Inventory adjustment (ADJ).
 
     - If `lot` is provided: apply delta to that lot.
-    - If `lot` is not provided and delta < 0: consume FIFO lots until delta is satisfied.
-    - If `lot` is not provided and delta > 0: create a new lot as an adjustment lot.
+    - If `lot` is not provided and delta < 0: consume LIFO lots (newest first).
+    - If `lot` is not provided and delta > 0: create a new ADJ lot using the last receipt cost.
     """
     delta = int(qty_delta or 0)
     if delta == 0:
@@ -308,28 +321,28 @@ def adjust_stock(*, product: Product, qty_delta: int, lot: InventoryLot | None =
         adjust_lot(lot=lot, delta=delta, note=note)
         return
 
-    # Negative adjustment: write-off from FIFO lots
+    # Negative adjustment: write-off from the newest lots first.
     if delta < 0:
         remaining = abs(delta)
 
-        for fifo_lot in _iter_fifo_lots(product):
+        for lifo_lot in _iter_lifo_lots(product):
             if remaining <= 0:
                 break
 
-            available = int(fifo_lot.qty_available or 0)
+            available = int(lifo_lot.qty_available or 0)
             if available <= 0:
                 continue
 
             take = min(available, remaining)
 
-            fifo_lot.qty_out = F("qty_out") + take
-            fifo_lot.save(update_fields=["qty_out"])
-            fifo_lot.refresh_from_db(fields=["qty_in", "qty_reserved", "qty_out"])
+            lifo_lot.qty_out = F("qty_out") + take
+            lifo_lot.save(update_fields=["qty_out"])
+            lifo_lot.refresh_from_db(fields=["qty_in", "qty_reserved", "qty_out"])
 
             mv = InventoryMove(
                 move_type=InventoryMove.MOVE_ADJUST,
                 product=product,
-                lot=fifo_lot,
+                lot=lifo_lot,
                 qty=-take,
                 note=note,
             )
@@ -345,18 +358,38 @@ def adjust_stock(*, product: Product, qty_delta: int, lot: InventoryLot | None =
         recompute_product_stock(product.id)
         return
 
-    # Positive adjustment: create a new lot (so we keep audit trail via lots)
-    lot_ref = "ADJ+"
+    # Positive adjustment: create a new lot (audit trail), but use the last receipt as a reference.
+    last_lot = (
+        InventoryLot.objects.filter(product=product)
+        .order_by("-received_at", "-id")
+        .select_for_update()
+        .first()
+    )
+
+    unit_cost = Decimal("0")
+    supplier = ""
+    external_ref = ""
+    currency = "UAH"
+    reference = "ADJ+"
+
+    if last_lot is not None:
+        unit_cost = last_lot.unit_cost or Decimal("0")
+        supplier = getattr(last_lot, "supplier", "") or ""
+        external_ref = getattr(last_lot, "external_ref", "") or ""
+        currency = getattr(last_lot, "currency", "UAH") or "UAH"
+
     adj_lot = InventoryLot(
         product=product,
-        unit_cost=getattr(product, "cost_price", Decimal("0")) or Decimal("0"),
+        unit_cost=unit_cost,
         qty_in=delta,
         qty_out=0,
         qty_reserved=0,
-        reference=lot_ref,
+        reference=reference,
+        supplier=supplier,
+        external_ref=external_ref,
+        currency=currency,
+        note=note,
     )
-    if hasattr(adj_lot, "note"):
-        adj_lot.note = note
     adj_lot.save()
 
     mv = InventoryMove(
@@ -364,7 +397,7 @@ def adjust_stock(*, product: Product, qty_delta: int, lot: InventoryLot | None =
         product=product,
         lot=adj_lot,
         qty=delta,
-        note=note or lot_ref,
+        note=note or reference,
     )
     if hasattr(mv, "created_by"):
         mv.created_by = user

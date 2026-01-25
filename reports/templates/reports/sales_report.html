@@ -42,35 +42,145 @@
 </form>
 
 <div class="row g-3 mb-3">
-  <div class="col-md-4">
+  <div class="col-md-3">
     <div class="card shadow-sm border-0 h-100">
       <div class="card-body">
-        <div class="small text-muted mb-1">Сума продажів</div>
+        <div class="small text-muted mb-1">Відвантажено (revenue)</div>
         <div class="h3 mb-0 fw-semibold">
-          {{ total_sales|default:0|floatformat:2 }} грн
+          {{ shipped_revenue|default:0|floatformat:2 }} грн
         </div>
-        <div class="small text-muted mt-2">Маржа (лише shipped): <strong>{{ total_margin|default:0|floatformat:2 }}</strong> грн</div>
+        <div class="small text-muted mt-2">Замовлень: <strong>{{ shipped_count }}</strong></div>
       </div>
     </div>
   </div>
 
-  <div class="col-md-4">
+  <div class="col-md-3">
     <div class="card shadow-sm border-0 h-100">
       <div class="card-body">
-        <div class="small text-muted mb-1">Кількість замовлень (у вибірці)</div>
+        <div class="small text-muted mb-1">COGS (по FIFO)</div>
         <div class="h3 mb-0 fw-semibold">
-          {{ orders|length }}
+          {{ shipped_cogs|default:0|floatformat:2 }} грн
+        </div>
+        <div class="small text-muted mt-2">Одиниць: <strong>{{ shipped_qty }}</strong></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-3">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body">
+        <div class="small text-muted mb-1">Маржа</div>
+        <div class="h3 mb-0 fw-semibold">
+          {{ shipped_margin|default:0|floatformat:2 }} грн
+        </div>
+        <div class="small text-muted mt-2">Маржа, %: <strong>{{ shipped_margin_pct|floatformat:1 }}%</strong></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-3">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body">
+        <div class="small text-muted mb-1">Середній чек (shipped)</div>
+        <div class="h3 mb-0 fw-semibold">
+          {{ shipped_avg_order|default:0|floatformat:2 }} грн
+        </div>
+        <div class="small text-muted mt-2">Створено у періоді: <strong>{{ created_count }}</strong></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-6">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body">
+        <h2 class="h6 mb-3">Створені замовлення у періоді (операційно)</h2>
+        <div class="d-flex flex-wrap gap-3 small">
+          <div>Сума: <strong>{{ created_total_sales|floatformat:2 }}</strong> грн</div>
+          <div>Середній чек: <strong>{{ created_avg_order|floatformat:2 }}</strong> грн</div>
+        </div>
+        <div class="table-responsive mt-3">
+          <table class="table table-sm align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Статус</th>
+                <th class="text-end">К-сть</th>
+                <th class="text-end">Сума, грн</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in created_by_status %}
+              <tr>
+                <td>{{ row.status }}</td>
+                <td class="text-end">{{ row.cnt }}</td>
+                <td class="text-end">{{ row.total|default:0|floatformat:2 }}</td>
+              </tr>
+              {% empty %}
+              <tr>
+                <td colspan="3" class="text-center text-muted py-3">Немає замовлень у вибірці.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="col-md-4">
+  <div class="col-lg-6">
     <div class="card shadow-sm border-0 h-100">
       <div class="card-body">
-        <div class="small text-muted mb-1">Кількість клієнтів</div>
-        <div class="h3 mb-0 fw-semibold">
-          {{ by_dealer|length }}
+        <h2 class="h6 mb-3">ТОП товари</h2>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <div class="small text-muted mb-2">за revenue</div>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>SKU</th>
+                    <th class="text-end">Qty</th>
+                    <th class="text-end">Сума</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for r in top_products_by_rev %}
+                  <tr>
+                    <td class="text-nowrap">{{ r.product__sku }}</td>
+                    <td class="text-end">{{ r.qty|default:0 }}</td>
+                    <td class="text-end">{{ r.revenue|default:0|floatformat:2 }}</td>
+                  </tr>
+                  {% empty %}
+                  <tr><td colspan="3" class="text-center text-muted py-3">Немає відвантажень.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="small text-muted mb-2">за маржею</div>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>SKU</th>
+                    <th class="text-end">Маржа</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for r in top_products_by_margin %}
+                  <tr>
+                    <td class="text-nowrap">{{ r.product__sku }}</td>
+                    <td class="text-end">{{ r.margin|default:0|floatformat:2 }}</td>
+                  </tr>
+                  {% empty %}
+                  <tr><td colspan="2" class="text-center text-muted py-3">Немає відвантажень.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -80,18 +190,17 @@
 <div class="card mb-3 shadow-sm border-0">
   <div class="card-body">
     <div class="d-flex justify-content-between align-items-center mb-2">
-      <h2 class="h6 mb-0">Динаміка продажів</h2>
+    <h2 class="h6 mb-0">Динаміка відвантажень (revenue + маржа)</h2>
     </div>
     {% if chart_labels %}
       {{ chart_labels|json_script:"sales-chart-labels" }}
-      {{ chart_totals|json_script:"sales-chart-values" }}
+      {{ chart_revenue|json_script:"sales-chart-revenue" }}
+      {{ chart_margin|json_script:"sales-chart-margin" }}
       <div style="height: 260px;">
         <canvas id="salesChart"></canvas>
       </div>
     {% else %}
-      <p class="text-muted small mb-0">
-        Немає даних для побудови графіка за обраний період.
-      </p>
+      <p class="text-muted small mb-0">Немає відвантажень за обраний період.</p>
     {% endif %}
   </div>
 </div>
@@ -100,30 +209,32 @@
   <div class="col-lg-6">
     <div class="card shadow-sm border-0 h-100">
       <div class="card-body">
-        <h2 class="h6 mb-3">Продажі за клієнтами</h2>
+        <h2 class="h6 mb-3">Відвантаження за клієнтами</h2>
         <div class="table-responsive">
           <table class="table table-sm align-middle mb-0">
             <thead class="table-light">
               <tr>
                 <th>Клієнт</th>
                 <th class="text-end">Сума, грн</th>
+                <th class="text-end">Маржа, грн</th>
+                <th class="text-end">Замовлень</th>
               </tr>
             </thead>
             <tbody>
             {% for row in by_dealer %}
               <tr>
                 <td>
-                  {{ row.dealer__username }}
+                  {{ row.order__dealer__username }}
                 </td>
                 <td class="text-end">
-                  {{ row.dealer_total|floatformat:2 }}
+                  {{ row.revenue|default:0|floatformat:2 }}
                 </td>
+                <td class="text-end">{{ row.margin|default:0|floatformat:2 }}</td>
+                <td class="text-end">{{ row.orders|default:0 }}</td>
               </tr>
             {% empty %}
               <tr>
-                <td colspan="2" class="text-center text-muted py-3">
-                  Немає продажів за обраний період.
-                </td>
+                <td colspan="4" class="text-center text-muted py-3">Немає відвантажень за обраний період.</td>
               </tr>
             {% endfor %}
             </tbody>
@@ -136,29 +247,29 @@
   <div class="col-lg-6">
     <div class="card shadow-sm border-0 h-100">
       <div class="card-body">
-        <h2 class="h6 mb-3">Останні замовлення</h2>
+        <h2 class="h6 mb-3">Останні відвантаження</h2>
         <div class="table-responsive">
           <table class="table table-sm align-middle mb-0">
             <thead class="table-light">
               <tr>
                 <th>#</th>
                 <th>Клієнт</th>
-                <th class="text-nowrap">Дата</th>
+                <th class="text-nowrap">Відвантажено</th>
                 <th class="text-end">Сума, грн</th>
               </tr>
             </thead>
             <tbody>
-            {% for o in orders %}
+            {% for o in shipped_orders %}
               <tr>
                 <td>#{{ o.id }}</td>
                 <td>{{ o.dealer.username }}</td>
-                <td class="text-nowrap">{{ o.created_at|date:"d.m.Y H:i" }}</td>
+                <td class="text-nowrap">{{ o.shipped_at|date:"d.m.Y H:i" }}</td>
                 <td class="text-end">{{ o.total|floatformat:2 }}</td>
               </tr>
             {% empty %}
               <tr>
                 <td colspan="4" class="text-center text-muted py-3">
-                  Немає замовлень за обраний період.
+                  Немає відвантажень за обраний період.
                 </td>
               </tr>
             {% endfor %}
@@ -166,6 +277,50 @@
           </table>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-4 shadow-sm border-0">
+  <div class="card-body">
+    <h2 class="h6 mb-3">Останні відвантажені позиції (lines)</h2>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th class="text-nowrap">Дата</th>
+            <th>#</th>
+            <th>Клієнт</th>
+            <th>SKU</th>
+            <th>Товар</th>
+            <th class="text-end">Qty</th>
+            <th class="text-end">Ціна</th>
+            <th class="text-end">Сума</th>
+            <th class="text-end">COGS</th>
+            <th class="text-end">Маржа</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for it in items_table %}
+          <tr>
+            <td class="text-nowrap">{{ it.order.shipped_at|date:"d.m.Y" }}</td>
+            <td class="text-nowrap">#{{ it.order.id }}</td>
+            <td class="text-nowrap">{{ it.order.dealer.username }}</td>
+            <td class="text-nowrap">{{ it.product.sku }}</td>
+            <td>{{ it.product.name }}</td>
+            <td class="text-end">{{ it.qty }}</td>
+            <td class="text-end">{{ it.price|floatformat:2 }}</td>
+            <td class="text-end">{{ it.line_revenue|default:0|floatformat:2 }}</td>
+            <td class="text-end">{{ it.cost_total|default:0|floatformat:2 }}</td>
+            <td class="text-end">{{ it.line_margin|default:0|floatformat:2 }}</td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="10" class="text-center text-muted py-3">Немає відвантажених позицій за обраний період.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   </div>
 </div>
@@ -177,13 +332,15 @@
   <script>
     (function () {
       const labelsEl = document.getElementById('sales-chart-labels');
-      const valuesEl = document.getElementById('sales-chart-values');
-      if (!labelsEl || !valuesEl) {
+      const revenueEl = document.getElementById('sales-chart-revenue');
+      const marginEl = document.getElementById('sales-chart-margin');
+      if (!labelsEl || !revenueEl || !marginEl) {
         return;
       }
 
       const labels = JSON.parse(labelsEl.textContent);
-      const values = JSON.parse(valuesEl.textContent);
+      const revenue = JSON.parse(revenueEl.textContent);
+      const margin = JSON.parse(marginEl.textContent);
 
       const ctx = document.getElementById('salesChart');
       if (!ctx) {
@@ -195,8 +352,14 @@
         data: {
           labels: labels,
           datasets: [{
-            label: 'Продажі, грн',
-            data: values,
+            label: 'Revenue, грн',
+            data: revenue,
+            tension: 0.3,
+            borderWidth: 2,
+            pointRadius: 3
+          }, {
+            label: 'Маржа, грн',
+            data: margin,
             tension: 0.3,
             borderWidth: 2,
             pointRadius: 3
@@ -206,7 +369,7 @@
           responsive: true,
           maintainAspectRatio: false,
           plugins: {
-            legend: { display: false },
+            legend: { display: true },
             tooltip: {
               callbacks: {
                 label: function (ctx) {

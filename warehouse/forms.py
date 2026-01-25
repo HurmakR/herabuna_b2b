@@ -15,7 +15,8 @@ class ReceiveLotForm(forms.Form):
 class AdjustStockForm(forms.Form):
     product = forms.ModelChoiceField(queryset=Product.objects.order_by("sku"), label="Product")
     lot = forms.ModelChoiceField(
-        queryset=InventoryLot.objects.select_related("product").order_by("product__sku", "-received_at", "-id"),
+        # Filled dynamically based on selected product.
+        queryset=InventoryLot.objects.none(),
         required=False,
         label="Lot",
     )
@@ -29,11 +30,41 @@ class AdjustStockForm(forms.Form):
         self.fields["qty_delta"].widget.attrs.update({"class": "form-control", "placeholder": "Напр.: -3 або +5"})
         self.fields["note"].widget.attrs.update({"class": "form-control", "placeholder": "Причина/коментар"})
 
+        # Filter lots by the selected product.
+        product_obj = None
+        if self.is_bound:
+            raw = (self.data.get("product") or "").strip()
+            if raw.isdigit():
+                product_obj = Product.objects.filter(id=int(raw)).first()
+        else:
+            init = self.initial.get("product")
+            if isinstance(init, Product):
+                product_obj = init
+            elif isinstance(init, int):
+                product_obj = Product.objects.filter(id=init).first()
+            elif isinstance(init, str) and init.isdigit():
+                product_obj = Product.objects.filter(id=int(init)).first()
+
+        if product_obj is not None:
+            self.fields["lot"].queryset = (
+                InventoryLot.objects.select_related("product")
+                .filter(product=product_obj)
+                .order_by("-received_at", "-id")
+            )
+
         # Make lot labels more informative (SKU + lot id + available)
         def _lot_label(obj: InventoryLot) -> str:
             return f"{obj.product.sku} · lot#{obj.id} · avail {obj.qty_available}/{obj.qty_in} · {obj.received_at:%Y-%m-%d}"
 
         self.fields["lot"].label_from_instance = _lot_label
+
+    def clean(self):
+        cleaned = super().clean()
+        product = cleaned.get("product")
+        lot = cleaned.get("lot")
+        if product and lot and lot.product_id != product.id:
+            self.add_error("lot", "Обраний лот не належить до вибраного товару.")
+        return cleaned
 
 
 class ReceiptHeaderForm(forms.Form):

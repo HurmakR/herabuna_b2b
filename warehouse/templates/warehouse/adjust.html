@@ -32,7 +32,10 @@
       <div class="col-md-3">
         <label class="form-label">{{ form.lot.label }}</label>
         {{ form.lot }}
-        <div class="form-text">Опційно: якщо потрібно скоригувати конкретну партію.</div>
+        <div class="form-text">
+          Опційно. Якщо лот не обрано — коригуємо по <strong>останніх</strong> партіях (останній прихід).
+          Лот потрібен лише для точкової правки конкретної партії.
+        </div>
         {% if form.lot.errors %}<div class="text-danger small mt-1">{{ form.lot.errors|striptags }}</div>{% endif %}
       </div>
       <div class="col-12">
@@ -48,4 +51,26 @@
     </div>
   </div>
 </form>
+{% endblock %}
+
+{% block scripts %}
+  {{ block.super }}
+  <script>
+    (function () {
+      const productSelect = document.querySelector('select[name="product"]');
+      if (!productSelect) return;
+
+      productSelect.addEventListener('change', function () {
+        const id = this.value;
+        if (!id) {
+          window.location = window.location.pathname;
+          return;
+        }
+        // Reload page to populate lots dropdown filtered by selected product.
+        const url = new URL(window.location.href);
+        url.searchParams.set('product', id);
+        window.location = url.toString();
+      });
+    })();
+  </script>
 {% endblock %}
