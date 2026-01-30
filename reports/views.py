@@ -1,14 +1,40 @@
 from decimal import Decimal
 from django.contrib.admin.views.decorators import staff_member_required
+from django.contrib.auth.decorators import login_required
 from django.db.models import Sum, F, DecimalField, ExpressionWrapper, Value, OuterRef, Subquery, Count, Avg
 from django.db.models.functions import TruncDate, Coalesce
-from django.shortcuts import render
+from django.http import HttpResponse, HttpResponseForbidden
+from django.shortcuts import render, get_object_or_404
+from django.utils import timezone
 from b2b.models import Order, Product, Dealer, Brand
 from warehouse.models import InventoryLot
+
+try:
+    from weasyprint import HTML
+    WEASYPRINT_AVAILABLE = True
+except Exception:
+    WEASYPRINT_AVAILABLE = False
 
 
 def _is_staff(user):
     return user.is_staff
+
+
+def _render_pdf_from_template(request, template_name: str, context: dict, filename: str):
+    """Render a template to PDF using WeasyPrint.
+
+    Keep this helper local to reports to avoid import coupling with b2b.views.
+    """
+    if not WEASYPRINT_AVAILABLE:
+        return HttpResponse(
+            "PDF генерація недоступна (WeasyPrint не встановлено). Використайте HTML-друк.",
+            status=501,
+        )
+    html_string = render(request, template_name, context).content.decode("utf-8")
+    pdf = HTML(string=html_string, base_url=request.build_absolute_uri("/")).write_pdf()
+    response = HttpResponse(pdf, content_type="application/pdf")
+    response["Content-Disposition"] = f'inline; filename="{filename}"'
+    return response
 
 
 @staff_member_required
@@ -319,3 +345,128 @@ def stock_report(request):
         "chart_values": chart_values,
     }
     return render(request, "reports/stock_report.html", context)
+
+
+@login_required
+def client_report(request):
+    """Client-facing statement for a single dealer.
+
+    - Dealers see only their own data.
+    - Staff may select any dealer via ?dealer=<id>.
+    - The same view can render a PDF via ?format=pdf.
+    """
+
+    dealer = None
+    dealer_id = (request.GET.get("dealer") or "").strip()
+    date_from = (request.GET.get("date_from") or "").strip()
+    date_to = (request.GET.get("date_to") or "").strip()
+    export_pdf = (request.GET.get("format") or "").lower() == "pdf"
+
+    dealers = None
+    if request.user.is_staff:
+        dealers = Dealer.objects.filter(is_dealer=True).order_by("username")
+        if dealer_id:
+            dealer = get_object_or_404(Dealer, id=dealer_id)
+    else:
+        dealer = request.user
+        dealer_id = str(request.user.id)
+
+    # If staff hasn't selected a dealer yet, show an empty page with selector.
+    if request.user.is_staff and not dealer:
+        context = {
+            "dealer": None,
+            "dealers": dealers,
+            "dealer_id": dealer_id,
+            "date_from": date_from,
+            "date_to": date_to,
+        }
+        return render(request, "reports/client_report.html", context)
+
+    # Orders base
+    orders_qs = (
+        Order.objects
+        .select_related("dealer")
+        .prefetch_related("items", "items__product")
+        .filter(dealer_id=dealer.id)
+    )
+
+    created_qs = orders_qs.exclude(status="draft")
+    if date_from:
+        created_qs = created_qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        created_qs = created_qs.filter(created_at__date__lte=date_to)
+
+    shipped_qs = orders_qs.filter(status="shipped")
+    if date_from:
+        shipped_qs = shipped_qs.filter(shipped_at__date__gte=date_from)
+    if date_to:
+        shipped_qs = shipped_qs.filter(shipped_at__date__lte=date_to)
+
+    in_progress_qs = created_qs.filter(status__in=["submitted", "pending_payment"]).order_by("-created_at")
+    cancelled_qs = created_qs.filter(status="cancelled").order_by("-created_at")
+
+    shipped_total = shipped_qs.aggregate(total=Sum("total"))["total"] or Decimal("0")
+    in_progress_total = in_progress_qs.aggregate(total=Sum("total"))["total"] or Decimal("0")
+    cancelled_total = cancelled_qs.aggregate(total=Sum("total"))["total"] or Decimal("0")
+
+    shipped_count = shipped_qs.count()
+    in_progress_count = in_progress_qs.count()
+
+    # Items aggregation (shipped only)
+    from b2b.models import OrderItem
+    dec_out = DecimalField(max_digits=14, decimal_places=2)
+    revenue_expr = ExpressionWrapper(F("qty") * F("price"), output_field=dec_out)
+
+    shipped_items = (
+        OrderItem.objects
+        .select_related("product", "order")
+        .filter(order__in=shipped_qs)
+    )
+
+    shipped_qty = shipped_items.aggregate(q=Coalesce(Sum("qty"), Value(0)))["q"] or 0
+    shipped_avg_order = (shipped_total / shipped_count) if shipped_count else Decimal("0")
+
+    top_products = (
+        shipped_items.values("product__sku", "product__name")
+        .annotate(
+            revenue=Coalesce(Sum(revenue_expr), Value(0, output_field=dec_out), output_field=dec_out),
+        )
+        .annotate(qty=Sum("qty"))
+        .order_by("-revenue", "product__sku")[:20]
+    )
+
+    # Recent line items table
+    items_table = (
+        shipped_items
+        .annotate(line_revenue=revenue_expr)
+        .order_by("-order__shipped_at", "-order__id", "-id")[:250]
+    )
+
+    generated_at = timezone.now()
+
+    context = {
+        "dealer": dealer,
+        "dealers": dealers,
+        "dealer_id": dealer_id,
+        "date_from": date_from,
+        "date_to": date_to,
+        "generated_at": generated_at,
+        "shipped_orders": shipped_qs.order_by("-shipped_at", "-id")[:300],
+        "in_progress_orders": in_progress_qs[:300],
+        "cancelled_orders": cancelled_qs[:200],
+        "shipped_total": shipped_total,
+        "shipped_count": shipped_count,
+        "shipped_qty": shipped_qty,
+        "shipped_avg_order": shipped_avg_order,
+        "in_progress_total": in_progress_total,
+        "in_progress_count": in_progress_count,
+        "cancelled_total": cancelled_total,
+        "top_products": top_products,
+        "items_table": items_table,
+    }
+
+    if export_pdf:
+        filename = f"statement_{dealer.username}_{generated_at:%Y%m%d_%H%M}.pdf"
+        return _render_pdf_from_template(request, "reports/client_report_print.html", context, filename)
+
+    return render(request, "reports/client_report.html", context)

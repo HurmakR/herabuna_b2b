@@ -54,6 +54,18 @@
               <li><a class="dropdown-item" href="{% url 'reports:stock_report' %}">Залишки</a></li>
             </ul>
           </div>
+
+          {% if user.is_superuser %}
+          <div class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              Сервіс
+            </a>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="{% url 'reports:service_dashboard' %}">Сервісні дії</a></li>
+            </ul>
+          </div>
+          {% endif %}
+
         {% endif %}
 
         {% if user.is_authenticated and not user.is_staff %}

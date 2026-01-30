@@ -1,0 +1,143 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>Звіт клієнта — {{ dealer.username }}</title>
+  <style>
+    @page { size: A4; margin: 16mm; }
+    body { font-family: DejaVu Sans, Arial, sans-serif; font-size: 11px; color: #111; }
+    h1 { font-size: 16px; margin: 0 0 6px 0; }
+    h2 { font-size: 13px; margin: 14px 0 6px 0; }
+    .muted { color: #666; }
+    .row { display: flex; gap: 16px; }
+    .col { flex: 1; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 10px; }
+    .kpi { font-size: 18px; font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #ddd; padding: 6px; vertical-align: top; }
+    th { background: #f6f6f6; }
+    .right { text-align: right; }
+    .noborder td { border: none; padding: 2px 0; }
+    .small { font-size: 10px; }
+    .page-footer { margin-top: 12px; font-size: 10px; color: #666; }
+  </style>
+</head>
+<body>
+
+  <h1>Звіт для клієнта: {{ dealer.company_name|default:dealer.username }}</h1>
+  <div class="muted">
+    Період: {% if date_from %}{{ date_from }}{% else %}…{% endif %} — {% if date_to %}{{ date_to }}{% else %}…{% endif %}
+    · Сформовано: {{ generated_at|date:"d.m.Y H:i" }}
+  </div>
+
+  <table class="noborder" style="margin-top: 8px;">
+    <tr>
+      <td style="width: 50%;">
+        <strong>Клієнт:</strong> {{ dealer.username }}<br>
+        {% if dealer.company_name %}<span class="muted">{{ dealer.company_name }}</span><br>{% endif %}
+        {% if dealer.phone %}<span class="muted">Тел.: {{ dealer.phone }}</span><br>{% endif %}
+        {% if dealer.edrpou %}<span class="muted">ЄДРПОУ: {{ dealer.edrpou }}</span><br>{% endif %}
+      </td>
+      <td style="width: 50%;">
+        <strong>Постачальник:</strong> Herabuna B2B<br>
+        <span class="muted">Цей звіт містить підсумки продажів та відвантажень.</span>
+      </td>
+    </tr>
+  </table>
+
+  <div class="row" style="margin-top: 10px;">
+    <div class="col card">
+      <div class="muted">Відвантажено (shipped)</div>
+      <div class="kpi">{{ shipped_total|floatformat:2 }} грн</div>
+      <div class="small muted">Замовлень: {{ shipped_count }} · Товарів: {{ shipped_qty }} · Середній чек: {{ shipped_avg_order|floatformat:2 }} грн</div>
+    </div>
+    <div class="col card">
+      <div class="muted">В роботі</div>
+      <div class="kpi">{{ in_progress_total|floatformat:2 }} грн</div>
+      <div class="small muted">Замовлень: {{ in_progress_count }}</div>
+    </div>
+    <div class="col card">
+      <div class="muted">Скасовано</div>
+      <div class="kpi">{{ cancelled_total|floatformat:2 }} грн</div>
+      <div class="small muted">(не включається у відвантаження)</div>
+    </div>
+  </div>
+
+  <h2>Топ товарів (відвантажено)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 90px;">SKU</th>
+        <th>Товар</th>
+        <th class="right" style="width: 70px;">К-сть</th>
+        <th class="right" style="width: 120px;">Сума, грн</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in top_products %}
+        <tr>
+          <td class="muted">{{ row.product__sku }}</td>
+          <td>{{ row.product__name }}</td>
+          <td class="right">{{ row.qty }}</td>
+          <td class="right">{{ row.revenue|floatformat:2 }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4" class="muted">Немає даних за вибраний період.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Відвантажені замовлення</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 70px;">№</th>
+        <th style="width: 130px;">Дата</th>
+        <th style="width: 150px;">ТТН</th>
+        <th class="right" style="width: 120px;">Сума, грн</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for o in shipped_orders %}
+        <tr>
+          <td>#{{ o.id }}</td>
+          <td class="muted">{{ o.shipped_at|date:"d.m.Y H:i" }}</td>
+          <td class="muted">{{ o.shipping_ttn|default:"—" }}</td>
+          <td class="right">{{ o.total|floatformat:2 }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4" class="muted">Немає відвантажень.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Замовлення в роботі</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 70px;">№</th>
+        <th style="width: 130px;">Дата</th>
+        <th>Статус</th>
+        <th class="right" style="width: 120px;">Сума, грн</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for o in in_progress_orders %}
+        <tr>
+          <td>#{{ o.id }}</td>
+          <td class="muted">{{ o.created_at|date:"d.m.Y H:i" }}</td>
+          <td class="muted">{{ o.get_status_display }}</td>
+          <td class="right">{{ o.total|floatformat:2 }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4" class="muted">Немає активних замовлень.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="page-footer">
+    Звіт згенеровано автоматично в Herabuna B2B.
+  </div>
+</body>
+</html>

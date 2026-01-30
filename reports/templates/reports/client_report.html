@@ -1,0 +1,228 @@
+{% extends 'b2b/base.html' %}
+
+{% block title %}Звіт для клієнта{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+  <div>
+    <h1 class="h3 mb-1">Звіт для клієнта{% if dealer %}: {{ dealer.username }}{% endif %}</h1>
+    <div class="text-muted">Покупки та відвантаження за період (за датою створення та датою відвантаження).</div>
+  </div>
+
+  {% if dealer %}
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-secondary" href="?{% if dealer_id %}dealer={{ dealer_id }}&{% endif %}{% if date_from %}date_from={{ date_from }}&{% endif %}{% if date_to %}date_to={{ date_to }}&{% endif %}format=pdf">PDF</a>
+    </div>
+  {% endif %}
+</div>
+
+<div class="card shadow-sm soft-radius mt-3">
+  <div class="card-body">
+    <form method="get" class="row g-3 align-items-end">
+      {% if user.is_staff %}
+        <div class="col-12 col-md-4">
+          <label class="form-label">Клієнт</label>
+          <select name="dealer" class="form-select">
+            <option value="">Усі / оберіть</option>
+            {% for d in dealers %}
+              <option value="{{ d.id }}" {% if dealer_id|add:'' == d.id|add:'' %}selected{% endif %}>{{ d.username }}{% if d.company_name %} — {{ d.company_name }}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+      {% endif %}
+
+      <div class="col-6 col-md-3">
+        <label class="form-label">Період від</label>
+        <input type="date" name="date_from" value="{{ date_from }}" class="form-control">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Період до</label>
+        <input type="date" name="date_to" value="{{ date_to }}" class="form-control">
+      </div>
+
+      <div class="col-12 col-md-2 d-flex gap-2">
+        <button class="btn btn-primary w-100" type="submit">Фільтрувати</button>
+        <a class="btn btn-outline-secondary" href="{% url 'reports:client_report' %}{% if user.is_staff and dealer_id %}?dealer={{ dealer_id }}{% endif %}">Скинути</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if user.is_staff and not dealer %}
+  <div class="alert alert-info mt-3">Оберіть клієнта у фільтрі, щоб сформувати звіт.</div>
+{% endif %}
+
+{% if dealer %}
+  <div class="row g-3 mt-1">
+    <div class="col-12 col-lg-4">
+      <div class="card shadow-sm soft-radius">
+        <div class="card-body">
+          <div class="text-muted">Відвантажено (shipped)</div>
+          <div class="display-6 fw-semibold">{{ shipped_total|floatformat:2 }} грн</div>
+          <div class="small text-muted">Замовлень: {{ shipped_count }} · Товарів: {{ shipped_qty }}</div>
+          <div class="small text-muted">Середній чек: {{ shipped_avg_order|floatformat:2 }} грн</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-4">
+      <div class="card shadow-sm soft-radius">
+        <div class="card-body">
+          <div class="text-muted">В роботі (submitted / pending_payment)</div>
+          <div class="display-6 fw-semibold">{{ in_progress_total|floatformat:2 }} грн</div>
+          <div class="small text-muted">Замовлень: {{ in_progress_count }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-4">
+      <div class="card shadow-sm soft-radius">
+        <div class="card-body">
+          <div class="text-muted">Скасовано</div>
+          <div class="display-6 fw-semibold">{{ cancelled_total|floatformat:2 }} грн</div>
+          <div class="small text-muted">Період: {% if date_from %}{{ date_from }}{% else %}…{% endif %} — {% if date_to %}{{ date_to }}{% else %}…{% endif %}</div>
+          {% if generated_at %}<div class="small text-muted">Сформовано: {{ generated_at|date:"d.m.Y H:i" }}</div>{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3 mt-1">
+    <div class="col-12 col-xl-6">
+      <div class="card shadow-sm soft-radius">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h2 class="h5 mb-0">Топ товарів (відвантажено)</h2>
+            <span class="small text-muted">ТОП-20</span>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th>Товар</th>
+                  <th class="text-end">К-сть</th>
+                  <th class="text-end">Сума, грн</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in top_products %}
+                  <tr>
+                    <td class="text-muted">{{ row.product__sku }}</td>
+                    <td>{{ row.product__name }}</td>
+                    <td class="text-end">{{ row.qty }}</td>
+                    <td class="text-end">{{ row.revenue|floatformat:2 }}</td>
+                  </tr>
+                {% empty %}
+                  <tr><td colspan="4" class="text-muted">Немає даних за вибраний період.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-xl-6">
+      <div class="card shadow-sm soft-radius">
+        <div class="card-body">
+          <h2 class="h5">Останні позиції (відвантажено)</h2>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead>
+                <tr>
+                  <th>Замовлення</th>
+                  <th>SKU</th>
+                  <th>Товар</th>
+                  <th class="text-end">К-сть</th>
+                  <th class="text-end">Сума, грн</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for it in items_table %}
+                  <tr>
+                    <td class="text-muted">#{{ it.order.id }}</td>
+                    <td class="text-muted">{{ it.product.sku }}</td>
+                    <td>{{ it.product.name }}</td>
+                    <td class="text-end">{{ it.qty }}</td>
+                    <td class="text-end">{{ it.line_revenue|floatformat:2 }}</td>
+                  </tr>
+                {% empty %}
+                  <tr><td colspan="5" class="text-muted">Немає відвантажених позицій.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3 mt-1">
+    <div class="col-12 col-xl-7">
+      <div class="card shadow-sm soft-radius">
+        <div class="card-body">
+          <h2 class="h5">Відвантажені замовлення</h2>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Дата</th>
+                  <th>ТТН</th>
+                  <th class="text-end">Сума, грн</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for o in shipped_orders %}
+                  <tr>
+                    <td><a href="{% url 'b2b:order_detail' o.id %}" class="text-decoration-none">#{{ o.id }}</a></td>
+                    <td class="text-muted">{{ o.shipped_at|date:"d.m.Y H:i" }}</td>
+                    <td class="text-muted">{{ o.shipping_ttn|default:"—" }}</td>
+                    <td class="text-end">{{ o.total|floatformat:2 }}</td>
+                  </tr>
+                {% empty %}
+                  <tr><td colspan="4" class="text-muted">Немає відвантажень.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-xl-5">
+      <div class="card shadow-sm soft-radius">
+        <div class="card-body">
+          <h2 class="h5">Замовлення в роботі</h2>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Дата</th>
+                  <th>Статус</th>
+                  <th class="text-end">Сума, грн</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for o in in_progress_orders %}
+                  <tr>
+                    <td><a href="{% url 'b2b:order_detail' o.id %}" class="text-decoration-none">#{{ o.id }}</a></td>
+                    <td class="text-muted">{{ o.created_at|date:"d.m.Y H:i" }}</td>
+                    <td class="text-muted">{{ o.get_status_display }}</td>
+                    <td class="text-end">{{ o.total|floatformat:2 }}</td>
+                  </tr>
+                {% empty %}
+                  <tr><td colspan="4" class="text-muted">Немає активних замовлень.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% endblock %}

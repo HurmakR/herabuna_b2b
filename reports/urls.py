@@ -1,9 +1,15 @@
 from django.urls import path
 from . import views
+from . import service_views
 
 app_name = "reports"
 
 urlpatterns = [
     path("sales/", views.sales_report, name="sales_report"),
     path("stock/", views.stock_report, name="stock_report"),
+    path("service/", service_views.service_dashboard, name="service_dashboard"),
+    path("service/export/", service_views.export_backup, name="service_export"),
+    path("service/import/", service_views.import_backup, name="service_import"),
+    path("service/reset-warehouse/", service_views.reset_warehouse, name="service_reset_warehouse"),
+    path("service/reset-orders/", service_views.reset_orders, name="service_reset_orders"),
 ]
