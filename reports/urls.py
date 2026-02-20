@@ -12,4 +12,6 @@ urlpatterns = [
     path("service/import/", service_views.import_backup, name="service_import"),
     path("service/reset-warehouse/", service_views.reset_warehouse, name="service_reset_warehouse"),
     path("service/reset-orders/", service_views.reset_orders, name="service_reset_orders"),
+    path("service/woo/", service_views.service_woo_import, name="service_woo_import"),
+    path("service/woo/import/", service_views.service_woo_import_apply, name="service_woo_import_apply"),
 ]

@@ -450,16 +450,8 @@ def submit_order(request):
     order.status = "submitted"
     order.recalc()
     order.save(update_fields=["status", "subtotal", "total"])
-    # Push stock to Woo (best-effort)
-    client = woo_sync.WooClient()
-    for it in order.items.select_related("product", "variant"):
-        try:
-            if it.variant and it.product.woo_id:
-                client.update_variation_stock(it.product.woo_id, it.variant.woo_variation_id, it.variant.stock_qty)
-            elif it.product.woo_id:
-                client.update_stock(it.product.woo_id, it.product.stock_qty)
-        except Exception:
-            pass
+    # NOTE: WooCommerce sync is catalog-only in this project.
+    # Stock/price are managed exclusively in local warehouse (lots) + manual pricing.
     # Notify admin via email (brief)
     try:
         admin_email = getattr(settings, "ORDER_NOTIFY_EMAIL", None) or (settings.ADMINS[0][1] if getattr(settings, "ADMINS", None) else None)
@@ -585,16 +577,7 @@ def order_admin_action(request, order_id: int, action: str):
             messages.error(request, f"Помилка повернення товарів: {e}")
             return redirect("b2b:orders_admin")
 
-        # Best-effort Woo stock sync
-        try:
-            client = woo_sync.WooClient()
-            for it in order.items.select_related("product", "variant"):
-                if it.variant and it.product.woo_id:
-                    client.update_variation_stock(it.product.woo_id, it.variant.woo_variation_id, it.variant.stock_qty)
-                elif it.product.woo_id:
-                    client.update_stock(it.product.woo_id, it.product.stock_qty)
-        except Exception:
-            pass
+        # NOTE: WooCommerce sync is catalog-only in this project.
 
         order.status = "cancelled"
         order.save(update_fields=["status"])
@@ -635,16 +618,7 @@ def order_admin_action(request, order_id: int, action: str):
         order.status = "shipped"
         order.save(update_fields=["shipping_ttn", "shipping_np_ref", "shipped_at", "status"])
 
-        # Best-effort Woo stock sync
-        try:
-            client = woo_sync.WooClient()
-            for it in order.items.select_related("product", "variant"):
-                if it.variant and it.product.woo_id:
-                    client.update_variation_stock(it.product.woo_id, it.variant.woo_variation_id, it.variant.stock_qty)
-                elif it.product.woo_id:
-                    client.update_stock(it.product.woo_id, it.product.stock_qty)
-        except Exception:
-            pass
+        # NOTE: WooCommerce sync is catalog-only in this project.
 
         # Notify customer about shipment
         try:
@@ -827,16 +801,7 @@ def order_checkout_confirm(request):
         "subtotal", "total",
     ])
 
-    # Push stock to Woo (best-effort)
-    client = woo_sync.WooClient()
-    for it in order.items.select_related("product", "variant"):
-        try:
-            if it.variant and it.product.woo_id:
-                client.update_variation_stock(it.product.woo_id, it.variant.woo_variation_id, it.variant.stock_qty)
-            elif it.product.woo_id:
-                client.update_stock(it.product.woo_id, it.product.stock_qty)
-        except Exception:
-            pass
+    # NOTE: WooCommerce sync is catalog-only in this project.
 
     # Notify admins: email + Telegram
     try:
