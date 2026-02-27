@@ -3,6 +3,15 @@
 {% block title %}Каталог — Herabuna B2B{% endblock %}
 {% block content %}
 
+<style>
+  /* Out-of-stock visual hint (all users) */
+  .product-card.out-of-stock { opacity: .55; }
+  .product-card.out-of-stock .product-img { filter: grayscale(1); }
+
+  /* Staff-only margin indicator dot */
+  .margin-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; vertical-align: middle; }
+</style>
+
 <form class="row g-2 align-items-end mb-3" method="get">
   <div class="col-12 col-md-4">
     <label class="form-label">Пошук</label>
@@ -56,9 +65,9 @@
 <div class="row g-3">
   {% for p in products %}
   <div class="col-12 col-sm-6 col-md-4 col-lg-3">
-    <div class="card h-100">
+    <div class="card h-100 product-card {% if p.stock_qty|default_if_none:0 <= 0 %}out-of-stock{% endif %}">
       {% if p.main_image_url %}
-        <img src="{{ p.main_image_url }}" class="card-img-top"
+        <img src="{{ p.main_image_url }}" class="card-img-top product-img"
              alt="{{ p.name }}" style="height:240px;object-fit:contain">
       {% endif %}
       <div class="card-body d-flex flex-column">
@@ -94,15 +103,13 @@
                 <label class="form-label small text-muted">Вхідна ціна, грн</label>
                 <div class="small text-muted" style="margin-top:-6px;">
                   Остання партія: <strong>{{ p.last_unit_cost|default_if_none:0|floatformat:2 }}</strong> грн
+                  {% if p.margin_band %}
+                    <span class="margin-dot bg-{{ p.margin_band }} ms-1" title="Коефіцієнт: {{ p.margin_ratio|floatformat:2 }}x"></span>
+                  {% endif %}
                 </div>
                 <input type="number" step="0.01" name="cost_price"
                        class="form-control form-control-sm"
                        value="{{ p.cost_price|default_if_none:0|unlocalize }}">
-              </div>
-              <div class="col-12 col-sm-6">
-                 <label class="form-label small text-muted">Залишок</label>
-                 <div class="small text-muted mt-1">В наявності: <strong>{{ p.stock_qty }}</strong> шт</div>
-                 <div class="small text-muted">Склад керується через модуль “Склад”.</div>
               </div>
               <div class="col-12 col-sm-6 d-flex flex-wrap align-items-center gap-2 mt-1">
                 <div class="form-check">

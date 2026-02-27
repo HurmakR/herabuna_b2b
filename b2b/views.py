@@ -14,7 +14,7 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_GET
 from .services import np_client
 from django.core.paginator import Paginator
-from urllib.parse import urlencode
+from decimal import Decimal, InvalidOperation
 from warehouse import services as wh
 
 try:
@@ -221,6 +221,36 @@ def product_list(request):
     paginator = Paginator(qs, 24)
     page_number = request.GET.get("page")
     page_obj = paginator.get_page(page_number)
+
+    # Staff-only: compute a margin indicator based on wholesale price vs last inbound unit cost.
+    # Rules:
+    # - ratio >= 2.0  -> green
+    # - 1.5 <= ratio < 2.0 -> yellow
+    # - ratio < 1.5  -> red
+    if request.user.is_authenticated and request.user.is_staff:
+        for p in page_obj.object_list:
+            ratio = None
+            band = ""
+
+            try:
+                w = Decimal(str(getattr(p, "wholesale_price", None) or 0))
+                c = Decimal(str(getattr(p, "last_unit_cost", None) or 0))
+            except (InvalidOperation, TypeError, ValueError):
+                w = Decimal("0")
+                c = Decimal("0")
+
+            if w > 0 and c > 0:
+                ratio = w / c
+                if ratio >= Decimal("2.0"):
+                    band = "success"  # green
+                elif ratio >= Decimal("1.5"):
+                    band = "warning"  # yellow
+                else:
+                    band = "danger"   # red
+
+            # Attach computed values for the template
+            p.margin_ratio = ratio
+            p.margin_band = band
 
     # keep current filters without 'page'
     qs_params = request.GET.copy()
