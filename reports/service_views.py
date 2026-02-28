@@ -224,3 +224,130 @@ def service_woo_import_apply(request):
         ),
     )
     return redirect("reports:service_woo_import")
+
+
+@user_passes_test(_is_superuser)
+@require_GET
+def service_marketplace_orders(request):
+    from django.db.models import Sum
+    from b2b.models import Order
+    from warehouse.models import InventoryReservation
+
+    channel = (request.GET.get("channel") or "").strip().lower()
+    days = int(request.GET.get("days") or 14)
+
+    qs = Order.objects.filter(channel__in=["woo", "rozetka"]).order_by("-created_at").select_related("dealer")
+    from datetime import timedelta
+    from django.utils import timezone as dj_timezone
+    if days and days > 0:
+        qs = qs.filter(created_at__gte=dj_timezone.now() - timedelta(days=days))
+    if channel in {"woo", "rozetka"}:
+        qs = qs.filter(channel=channel)
+
+    orders = list(qs[:200])
+
+    # Precompute reserved qty per order (single query)
+    res_rows = (
+        InventoryReservation.objects
+        .filter(order_item__order_id__in=[o.id for o in orders])
+        .values("order_item__order_id")
+        .annotate(qty=Sum("qty"))
+    )
+    reserved_map = {int(r["order_item__order_id"]): int(r["qty"] or 0) for r in res_rows}
+
+    for o in orders:
+        payload = o.external_payload or {}
+        # Django templates disallow access to attributes starting with underscores.
+        # Attach computed values using safe attribute names.
+        o.reserved_qty = reserved_map.get(o.id, 0)
+        o.unmatched_count = len(payload.get("unmatched_items") or [])
+        o.sync_error = payload.get("sync_error") or ""
+
+    context = {
+        "orders": orders,
+        "channel": channel,
+        "days": days,
+    }
+    return render(request, "reports/service_marketplace_orders.html", context)
+
+
+@user_passes_test(_is_superuser)
+@require_POST
+def service_marketplace_orders_sync(request):
+    from b2b.services.marketplace_sync import sync_rozetka_orders, sync_woo_orders
+
+    source = (request.POST.get("source") or "all").strip().lower()
+    days = int(request.POST.get("days") or 14)
+    auto_apply = bool(request.POST.get("auto_apply") == "1")
+
+    if source in {"woo", "all"}:
+        try:
+            res = sync_woo_orders(days=days, auto_apply=auto_apply)
+            messages.success(
+                request,
+                (
+                    f"Woo: created={res.created}, updated={res.updated}, "
+                    f"reserved={res.reserved}, released={res.released}, "
+                    f"skipped_unmapped={res.skipped_unmapped}, errors={len(res.errors)}"
+                ),
+            )
+            for e in res.errors[:5]:
+                messages.warning(request, f"Woo: {e}")
+        except Exception as e:
+            messages.error(request, f"Woo sync error: {e}")
+
+    if source in {"rozetka", "all"}:
+        try:
+            res = sync_rozetka_orders(days=days, auto_apply=auto_apply, types=1)
+            messages.success(
+                request,
+                (
+                    f"Rozetka: created={res.created}, updated={res.updated}, "
+                    f"reserved={res.reserved}, released={res.released}, "
+                    f"skipped_unmapped={res.skipped_unmapped}, errors={len(res.errors)}"
+                ),
+            )
+            for e in res.errors[:5]:
+                messages.warning(request, f"Rozetka: {e}")
+        except Exception as e:
+            messages.error(request, f"Rozetka sync error: {e}")
+
+    return redirect("reports:service_marketplace_orders")
+
+
+@user_passes_test(_is_superuser)
+@require_POST
+def service_marketplace_orders_apply(request):
+    from b2b.models import Order
+    from b2b.services.marketplace_orders import apply_stock_action
+
+    action = (request.POST.get("action") or "").strip().lower()
+    order_ids = _parse_int_list(request.POST.getlist("order_ids"))
+
+    if action not in {"reserve", "release", "ship"}:
+        messages.error(request, "Невідома дія.")
+        return redirect("reports:service_marketplace_orders")
+
+    if not order_ids:
+        messages.warning(request, "Не вибрано жодного замовлення.")
+        return redirect("reports:service_marketplace_orders")
+
+    ok = 0
+    failed = 0
+    for oid in order_ids:
+        order = Order.objects.filter(id=oid, channel__in=["woo", "rozetka"]).first()
+        if not order:
+            continue
+        try:
+            apply_stock_action(order=order, action=action)
+            ok += 1
+        except Exception as e:
+            failed += 1
+            messages.warning(request, f"{order.channel}:{order.external_id} — {e}")
+
+    if ok:
+        messages.success(request, f"Готово: {ok} шт.")
+    if failed:
+        messages.warning(request, f"Помилки: {failed} шт.")
+
+    return redirect("reports:service_marketplace_orders")

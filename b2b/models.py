@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 from django.conf import settings
 
@@ -194,6 +195,15 @@ class Order(models.Model):
     total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     note = models.TextField(blank=True)
 
+
+    # External marketplace integration fields
+    channel = models.CharField(max_length=20, default="b2b", db_index=True)  # b2b / woo / rozetka
+    external_id = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    external_status = models.CharField(max_length=64, blank=True, default="")
+    external_created_at = models.DateTimeField(null=True, blank=True)
+    external_payload = models.JSONField(default=dict, blank=True)
+
+
     # Shipping info (filled on shipment)
     shipping_address = models.ForeignKey('Address', null=True, blank=True,
                                          on_delete=models.SET_NULL, related_name="orders")
@@ -206,6 +216,16 @@ class Order(models.Model):
     shipping_warehouse_ref = models.CharField(max_length=64, blank=True)
     shipping_recipient = models.CharField(max_length=120, blank=True)
     shipping_phone = models.CharField(max_length=30, blank=True)
+
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["channel", "external_id"],
+                condition=~Q(external_id=""),
+                name="uniq_order_external_channel_id",
+            )
+        ]
 
 
     def recalc(self):

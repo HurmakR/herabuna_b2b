@@ -104,3 +104,13 @@ ORDER_NOTIFY_EMAIL = os.environ.get("ORDER_NOTIFY_EMAIL", "")
 
 AUTHENTICATION_BACKENDS = ["django.contrib.auth.backends.ModelBackend"]
 LOGIN_FORM_PATH = "b2b.forms.CustomAuthenticationForm"
+
+
+# Marketplace integrations
+MARKETPLACE_DEALER_USERNAME = os.environ.get("MARKETPLACE_DEALER_USERNAME", "marketplace")
+
+# Rozetka Seller API (orders import)
+ROZETKA_API_URL = os.environ.get("ROZETKA_API_URL", "https://api.seller.rozetka.com.ua")
+ROZETKA_USERNAME = os.environ.get("ROZETKA_USERNAME", "")
+# IMPORTANT: Rozetka password must be base64-encoded (per Rozetka API docs).
+ROZETKA_PASSWORD_B64 = os.environ.get("ROZETKA_PASSWORD_B64", "")

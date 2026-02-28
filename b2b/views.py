@@ -14,7 +14,7 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_GET
 from .services import np_client
 from django.core.paginator import Paginator
-from decimal import Decimal, InvalidOperation
+from urllib.parse import urlencode
 from warehouse import services as wh
 
 try:

@@ -14,4 +14,7 @@ urlpatterns = [
     path("service/reset-orders/", service_views.reset_orders, name="service_reset_orders"),
     path("service/woo/", service_views.service_woo_import, name="service_woo_import"),
     path("service/woo/import/", service_views.service_woo_import_apply, name="service_woo_import_apply"),
+    path("service/marketplace/orders/", service_views.service_marketplace_orders, name="service_marketplace_orders"),
+    path("service/marketplace/orders/sync/", service_views.service_marketplace_orders_sync, name="service_marketplace_orders_sync"),
+    path("service/marketplace/orders/apply/", service_views.service_marketplace_orders_apply, name="service_marketplace_orders_apply"),
 ]

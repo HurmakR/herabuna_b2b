@@ -1,0 +1,137 @@
+{% extends 'b2b/base.html' %}
+
+{% block title %}Marketplace → Замовлення — Herabuna B2B{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+  <div>
+    <h1 class="h4 mb-1">Marketplace → Замовлення</h1>
+    <div class="text-muted small">
+      Імпорт замовлень з WooCommerce та Rozetka і автоматичне резервування (списання доступного складу).
+      Якщо товар не замапився на SKU — замовлення показується, але резерв не виконується.
+    </div>
+  </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="{% url 'reports:service_dashboard' %}">← Сервіс</a>
+  </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+  <div class="card-body">
+    <form method="post" action="{% url 'reports:service_marketplace_orders_sync' %}" class="row gy-2 gx-3 align-items-end">
+      {% csrf_token %}
+      <div class="col-12 col-md-2">
+        <label class="form-label">Вікно, днів</label>
+        <input class="form-control" type="number" name="days" value="{{ days }}" min="1" max="120">
+      </div>
+
+      <div class="col-12 col-md-4">
+        <div class="form-check mt-4">
+          <input class="form-check-input" type="checkbox" name="auto_apply" value="1" id="auto_apply" checked>
+          <label class="form-check-label" for="auto_apply">
+            Автоматично застосувати політику (reserve/release)
+          </label>
+        </div>
+      </div>
+
+      <div class="col-12 col-md-6 d-flex flex-wrap gap-2 justify-content-md-end">
+        <button class="btn btn-primary" name="source" value="all">Sync Woo + Rozetka</button>
+        <button class="btn btn-outline-primary" name="source" value="woo">Sync Woo</button>
+        <button class="btn btn-outline-primary" name="source" value="rozetka">Sync Rozetka</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<form method="post" action="{% url 'reports:service_marketplace_orders_apply' %}">
+  {% csrf_token %}
+  <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-2">
+    <div class="d-flex gap-2 align-items-center">
+      <select class="form-select form-select-sm" name="action" style="max-width:240px;">
+        <option value="reserve">Reserve (списати доступний склад)</option>
+        <option value="release">Release (повернути резерв)</option>
+        <option value="ship">Ship (списати qty_out)</option>
+      </select>
+      <button class="btn btn-sm btn-outline-secondary">Застосувати до вибраних</button>
+    </div>
+
+    <div class="text-muted small">
+      Показано останні {{ orders|length }} замовлень (до 200).
+    </div>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-sm align-middle table-hover bg-white border">
+      <thead class="table-light">
+        <tr>
+          <th style="width:36px;">
+            <input class="form-check-input" type="checkbox" id="check_all" onclick="document.querySelectorAll('input[name=order_ids]').forEach(cb=>cb.checked=this.checked)">
+          </th>
+          <th>Канал</th>
+          <th>External</th>
+          <th>Статус (канал)</th>
+          <th>Дата</th>
+          <th>Внутр. статус</th>
+          <th>Резерв</th>
+          <th>Проблеми</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for o in orders %}
+        <tr>
+          <td>
+            <input class="form-check-input" type="checkbox" name="order_ids" value="{{ o.id }}">
+          </td>
+          <td>
+            {% if o.channel == 'woo' %}
+              <span class="badge bg-primary">Woo</span>
+            {% elif o.channel == 'rozetka' %}
+              <span class="badge bg-success">Rozetka</span>
+            {% else %}
+              <span class="badge bg-secondary">{{ o.channel }}</span>
+            {% endif %}
+          </td>
+          <td>
+            <div class="fw-semibold">
+              <a href="{% url 'b2b:order_detail' o.id %}" class="text-decoration-none">
+                #{{ o.external_id }}
+              </a>
+            </div>
+            <div class="text-muted small">order_id: {{ o.id }}</div>
+          </td>
+          <td>
+            <span class="text-muted">{{ o.external_status }}</span>
+          </td>
+          <td class="small">
+            {% if o.external_created_at %}{{ o.external_created_at|date:"Y-m-d H:i" }}{% else %}{{ o.created_at|date:"Y-m-d H:i" }}{% endif %}
+          </td>
+          <td>
+            <span class="badge bg-light text-dark border">{{ o.status }}</span>
+          </td>
+          <td>
+            {% if o.reserved_qty|default:0 > 0 %}
+              <span class="badge bg-warning text-dark">{{ o.reserved_qty }} шт</span>
+            {% else %}
+              <span class="text-muted small">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if o.unmatched_count|default:0 > 0 %}
+              <span class="badge bg-danger">SKU не знайдено: {{ o.unmatched_count }}</span>
+            {% endif %}
+            {% if o.sync_error %}
+              <div class="text-danger small mt-1">{{ o.sync_error }}</div>
+            {% endif %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="8" class="text-muted">Немає даних. Натисни Sync.</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</form>
+
+{% endblock %}
