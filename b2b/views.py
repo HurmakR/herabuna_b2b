@@ -24,7 +24,13 @@ except Exception:
     WEASYPRINT_AVAILABLE = False
 
 from django.forms import modelform_factory
-from .forms import DealerSignUpForm, ProfileForm, AddressForm
+from .forms import (
+    DealerSignUpForm,
+    ProfileForm,
+    AddressForm,
+    AdminOrderCreateForm,
+    AdminOrderLineFormSet,
+)
 from .models import Brand, Category, Order, OrderItem, Product, ProductVariant, Address, Dealer
 from .services import woo_sync, np_api, telegram as tg
 
@@ -221,36 +227,6 @@ def product_list(request):
     paginator = Paginator(qs, 24)
     page_number = request.GET.get("page")
     page_obj = paginator.get_page(page_number)
-
-    # Staff-only: compute a margin indicator based on wholesale price vs last inbound unit cost.
-    # Rules:
-    # - ratio >= 2.0  -> green
-    # - 1.5 <= ratio < 2.0 -> yellow
-    # - ratio < 1.5  -> red
-    if request.user.is_authenticated and request.user.is_staff:
-        for p in page_obj.object_list:
-            ratio = None
-            band = ""
-
-            try:
-                w = Decimal(str(getattr(p, "wholesale_price", None) or 0))
-                c = Decimal(str(getattr(p, "last_unit_cost", None) or 0))
-            except (InvalidOperation, TypeError, ValueError):
-                w = Decimal("0")
-                c = Decimal("0")
-
-            if w > 0 and c > 0:
-                ratio = w / c
-                if ratio >= Decimal("2.0"):
-                    band = "success"  # green
-                elif ratio >= Decimal("1.5"):
-                    band = "warning"  # yellow
-                else:
-                    band = "danger"   # red
-
-            # Attach computed values for the template
-            p.margin_ratio = ratio
-            p.margin_band = band
 
     # keep current filters without 'page'
     qs_params = request.GET.copy()
@@ -537,6 +513,161 @@ def orders_admin(request):
         "dealers": dealers,
     }
     return render(request, "b2b/orders_admin.html", context)
+
+
+@user_passes_test(_is_staff)
+@transaction.atomic
+def order_admin_create(request):
+    """Create an order on behalf of a dealer.
+
+    Staff fills dealer + SKU/qty lines. We create a draft order, reserve stock (FIFO),
+    then mark it as 'submitted' to enter the normal admin workflow.
+    """
+
+    def _lookup_sku(sku: str):
+        """Resolve SKU to (product, variant). Variant is preferred if SKU matches a variant."""
+        sku = (sku or "").strip()
+        if not sku:
+            return None, None
+        v = (
+            ProductVariant.objects.select_related("product")
+            .filter(sku__iexact=sku)
+            .first()
+        )
+        if v:
+            return v.product, v
+        p = Product.objects.filter(sku__iexact=sku).first()
+        if p:
+            return p, None
+        return None, None
+
+    def _available_product_choices():
+        """Return choices for products that can be ordered (active, priced, in stock)."""
+        qs = (
+            Product.objects.filter(is_active=True, wholesale_price__gt=0, stock_qty__gt=0)
+            .order_by("name")
+        )
+        return [
+            ("", "— виберіть товар —"),
+            *[(p.sku, f"{p.sku} — {p.name} (залишок {p.stock_qty})") for p in qs],
+        ]
+
+    product_choices = _available_product_choices()
+
+    if request.method == "POST":
+        header_form = AdminOrderCreateForm(request.POST)
+        formset = AdminOrderLineFormSet(
+            request.POST,
+            prefix="line",
+            form_kwargs={"product_choices": product_choices},
+        )
+
+        if header_form.is_valid() and formset.is_valid():
+            dealer = header_form.cleaned_data["dealer"]
+            note = header_form.cleaned_data.get("note") or ""
+
+            raw_lines = []
+            for f in formset.forms:
+                if not f.cleaned_data or f.cleaned_data.get("DELETE"):
+                    continue
+                sku = (f.cleaned_data.get("sku") or "").strip()
+                qty = int(f.cleaned_data.get("qty") or 0)
+                if not sku or qty <= 0:
+                    continue
+                raw_lines.append((sku, qty))
+
+            if not raw_lines:
+                messages.error(request, "Додайте хоча б один рядок (товар + кількість).")
+                return render(
+                    request,
+                    "b2b/order_admin_create.html",
+                    {"header_form": header_form, "formset": formset},
+                )
+
+            # Aggregate duplicates to avoid unique_together conflicts.
+            aggregated = {}  # key=(product_id, variant_id or 0) -> dict
+            errors = []
+            for sku, qty in raw_lines:
+                product, variant = _lookup_sku(sku)
+                if not product:
+                    errors.append(f"SKU не знайдено: {sku}")
+                    continue
+
+                price = None
+                attrs = {}
+                if variant:
+                    price = variant.wholesale_price or product.wholesale_price
+                    attrs = variant.attributes or {}
+                else:
+                    price = product.wholesale_price
+
+                try:
+                    price_val = Decimal(str(price or 0))
+                except Exception:
+                    price_val = Decimal("0")
+
+                if price_val <= 0:
+                    errors.append(f"Для SKU {sku} не задано гуртову ціну.")
+                    continue
+
+                key = (int(product.id), int(variant.id) if variant else 0)
+                if key not in aggregated:
+                    aggregated[key] = {
+                        "product": product,
+                        "variant": variant,
+                        "qty": 0,
+                        "price": price_val,
+                        "attrs": attrs,
+                        "sku": sku,
+                    }
+                aggregated[key]["qty"] += int(qty)
+
+            if errors:
+                for e in errors:
+                    messages.error(request, e)
+                return render(
+                    request,
+                    "b2b/order_admin_create.html",
+                    {"header_form": header_form, "formset": formset},
+                )
+
+            try:
+                order = Order.objects.create(dealer=dealer, status="draft", note=note)
+
+                for rec in aggregated.values():
+                    OrderItem.objects.create(
+                        order=order,
+                        product=rec["product"],
+                        variant=rec["variant"],
+                        qty=int(rec["qty"]),
+                        price=rec["price"],
+                        variant_attrs=rec["attrs"] or {},
+                    )
+
+                # Reserve stock using FIFO lots (will raise WarehouseError on shortage).
+                wh.reserve_order(order)
+
+                order.status = "submitted"
+                order.recalc()
+                order.save(update_fields=["status", "subtotal", "total"])
+
+            except Exception as e:
+                messages.error(request, f"Не вдалося створити замовлення: {e}")
+                # Transaction rollback will remove the order/items/reservations.
+                return render(
+                    request,
+                    "b2b/order_admin_create.html",
+                    {"header_form": header_form, "formset": formset},
+                )
+
+            messages.success(request, f"Замовлення #{order.id} створено для {dealer.username}.")
+            return redirect("b2b:order_detail", order_id=order.id)
+
+    else:
+        header_form = AdminOrderCreateForm()
+        formset = AdminOrderLineFormSet(prefix="line", form_kwargs={"product_choices": product_choices})
+
+    return render(request, "b2b/order_admin_create.html", {"header_form": header_form, "formset": formset})
 
 
 def _render_invoice_pdf_bytes(request, order):

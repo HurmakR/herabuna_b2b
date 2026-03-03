@@ -40,6 +40,7 @@ urlpatterns = [
 
     # staff management
     path("orders-admin/", views.orders_admin, name="orders_admin"),
+    path("orders-admin/new/", views.order_admin_create, name="order_admin_create"),
     path("products/<int:product_id>/update/", views.product_update_inline, name="product_update_inline"),
     path("orders/<int:order_id>/set-status/<str:status>/", views.order_set_status, name="order_set_status"),
     path("orders/<int:order_id>/label.pdf", views.order_np_label, name="order_np_label"),

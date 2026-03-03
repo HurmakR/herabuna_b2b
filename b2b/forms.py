@@ -2,7 +2,9 @@
 from django import forms
 from django.core.validators import RegexValidator
 from django.contrib.auth import get_user_model
-from .models import Address
+from django.forms import formset_factory
+
+from .models import Address, Product
 from django.contrib.auth.forms import AuthenticationForm
 
 Dealer = get_user_model()
@@ -112,3 +114,63 @@ class CustomAuthenticationForm(AuthenticationForm):
         "invalid_login": "Невірний логін або пароль.",
         "inactive": "Ваш акаунт ще не активовано. Дочекайтеся підтвердження від адміністратора.",
     }
+
+
+# -------- Staff: create order on behalf of a dealer --------
+class AdminOrderCreateForm(forms.Form):
+    dealer = forms.ModelChoiceField(
+        label="Клієнт",
+        queryset=Dealer.objects.filter(is_dealer=True).order_by("username"),
+        widget=forms.Select(attrs={"class": "form-select"}),
+    )
+    note = forms.CharField(
+        label="Примітка",
+        required=False,
+        widget=forms.Textarea(attrs={"class": "form-control", "rows": 2}),
+    )
+
+
+class AdminOrderLineForm(forms.Form):
+    sku = forms.ChoiceField(
+        label="Товар",
+        required=False,
+        choices=[("", "— виберіть товар —")],
+        widget=forms.Select(
+            attrs={
+                "class": "form-select",
+            }
+        ),
+    )
+    qty = forms.IntegerField(
+        label="К-сть",
+        required=False,
+        min_value=1,
+        widget=forms.NumberInput(
+            attrs={
+                "class": "form-control",
+                "step": "1",
+                "min": "1",
+                "inputmode": "numeric",
+            }
+        ),
+    )
+
+    def __init__(self, *args, product_choices=None, **kwargs):
+        """Initialize with a precomputed choices list to avoid per-form DB hits."""
+        super().__init__(*args, **kwargs)
+        if product_choices is not None:
+            # product_choices is expected to include the blank option.
+            self.fields["sku"].choices = product_choices
+        else:
+            # Fallback: compute choices (used only if view doesn't pass form_kwargs).
+            qs = (
+                Product.objects.filter(is_active=True, wholesale_price__gt=0, stock_qty__gt=0)
+                .order_by("name")
+            )
+            self.fields["sku"].choices = [
+                ("", "— виберіть товар —"),
+                *[(p.sku, f"{p.sku} — {p.name} (залишок {p.stock_qty})") for p in qs],
+            ]
+
+
+AdminOrderLineFormSet = formset_factory(AdminOrderLineForm, extra=1, can_delete=True)

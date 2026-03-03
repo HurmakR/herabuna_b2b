@@ -35,7 +35,13 @@ class NormalizedOrder:
 
 
 class RozetkaClient:
-    """Rozetka Seller API client (orders only)."""
+    """Rozetka Seller API client (orders only).
+
+    Notes:
+    - Uses token cached in Django cache for ~23h.
+    - Adds pagination guards to avoid infinite loops if API does not return meta.
+    - Retries once on 401 by re-authenticating.
+    """
 
     TOKEN_CACHE_KEY = "rozetka_access_token"
 
@@ -44,25 +50,45 @@ class RozetkaClient:
         self.username = (getattr(settings, "ROZETKA_USERNAME", "") or "").strip()
         self.password_b64 = (getattr(settings, "ROZETKA_PASSWORD_B64", "") or "").strip()
 
+        # Use a session to reuse connections (faster) and to keep behavior consistent.
+        self.session = requests.Session()
+
+        # Conservative request timeout (connect, read).
+        # Read timeout must be present to avoid “page spinning forever”.
+        self.timeout = (10, 30)
+
+        # Safety limits for manual sync requests (to keep web request responsive).
+        self.max_pages = int(getattr(settings, "ROZETKA_SYNC_MAX_PAGES", 50) or 50)
+        self.max_orders = int(getattr(settings, "ROZETKA_SYNC_MAX_ORDERS", 500) or 500)
+
     def _login(self) -> str:
         if not self.username or not self.password_b64:
             raise RuntimeError("Rozetka credentials are not configured")
 
         url = f"{self.base}/sites"
-        r = requests.post(
-            url,
-            json={"username": self.username, "password": self.password_b64},
-            headers={"Content-Type": "application/json"},
-            timeout=30,
-        )
-        r.raise_for_status()
-        data = r.json() or {}
+        try:
+            r = self.session.post(
+                url,
+                json={"username": self.username, "password": self.password_b64},
+                headers={"Content-Type": "application/json"},
+                timeout=self.timeout,
+            )
+            r.raise_for_status()
+            data = r.json() or {}
+        except requests.RequestException as e:
+            raise RuntimeError(f"Rozetka login request failed: {e}") from e
+        except ValueError as e:
+            raise RuntimeError("Rozetka login response is not JSON") from e
+
         if not data.get("success"):
             raise RuntimeError(f"Rozetka login failed: {data.get('errors')}")
+
         token = (data.get("content") or {}).get("access_token") or ""
         token = str(token).strip()
         if not token:
             raise RuntimeError("Rozetka login response has no access_token")
+
+        # Token is valid for 24h; keep a bit less to be safe.
         cache.set(self.TOKEN_CACHE_KEY, token, timeout=23 * 60 * 60)
         return token
 
@@ -72,25 +98,56 @@ class RozetkaClient:
             return str(tok)
         return self._login()
 
-    def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> dict:
+    def _request(self, method: str, path: str, *, params: Optional[Dict[str, Any]] = None, json_body: Optional[dict] = None) -> dict:
         url = f"{self.base}/{path.lstrip('/')}"  # noqa: S108
-        params = params or {}
-        r = requests.get(
-            url,
-            params=params,
-            headers={"Authorization": f"Bearer {self._token()}"},
-            timeout=30,
-        )
-        r.raise_for_status()
-        return r.json() or {}
+        headers = {"Authorization": f"Bearer {self._token()}"}
+
+        def _do() -> requests.Response:
+            return self.session.request(
+                method,
+                url,
+                params=params or None,
+                json=json_body,
+                headers=headers,
+                timeout=self.timeout,
+            )
+
+        try:
+            r = _do()
+            if r.status_code == 401:
+                # Token expired/invalid -> relogin once
+                cache.delete(self.TOKEN_CACHE_KEY)
+                headers["Authorization"] = f"Bearer {self._token()}"
+                r = _do()
+
+            r.raise_for_status()
+            return r.json() or {}
+        except requests.RequestException as e:
+            raise RuntimeError(f"Rozetka API request failed: {method} {path} ({e})") from e
+        except ValueError as e:
+            raise RuntimeError(f"Rozetka API response is not JSON: {method} {path}") from e
+
+    def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> dict:
+        return self._request("GET", path, params=params)
 
     def fetch_orders(self, *, days: int = 14, types: int = 1) -> List[dict]:
-        """Fetch orders using /orders/search with changed_from window."""
+        """Fetch orders using /orders/search with changed_from window.
+
+        Guards:
+        - Hard cap on pages and total orders (settings.ROZETKA_SYNC_MAX_PAGES / MAX_ORDERS).
+        - Detects pagination loop when API ignores 'page' and returns same page repeatedly.
+        """
         start = (timezone.now() - timedelta(days=int(days))).date().isoformat()
         page = 1
         all_orders: List[dict] = []
+        prev_first_id: str = ""
 
         while True:
+            if page > self.max_pages:
+                break
+            if len(all_orders) >= self.max_orders:
+                break
+
             data = self._get(
                 "orders/search",
                 params={
@@ -103,10 +160,17 @@ class RozetkaClient:
             )
             if not data.get("success"):
                 raise RuntimeError(f"Rozetka orders/search failed: {data.get('errors')}")
+
             content = data.get("content") or {}
             orders = content.get("orders") or []
             if not orders:
                 break
+
+            # Loop detection: some APIs ignore 'page' and always return page 1.
+            first_id = str((orders[0] or {}).get("id") or "").strip()
+            if page > 1 and first_id and first_id == prev_first_id:
+                break
+            prev_first_id = first_id
 
             all_orders.extend(orders)
 
@@ -118,8 +182,7 @@ class RozetkaClient:
 
             page += 1
 
-        return all_orders
-
+        return all_orders[: self.max_orders]
 
 def _to_decimal(value: Any) -> Decimal:
     try:

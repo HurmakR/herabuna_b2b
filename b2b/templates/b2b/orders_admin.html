@@ -3,7 +3,10 @@
 
 {% block content %}
 
-<h2 class="h4 mb-3">Замовлення клієнтів</h2>
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <h2 class="h4 mb-0">Замовлення клієнтів</h2>
+  <a class="btn btn-outline-primary btn-sm" href="{% url 'b2b:order_admin_create' %}">+ Створити замовлення</a>
+</div>
 
 <form method="get" class="card p-3 shadow-sm mb-3">
   <div class="row g-2">

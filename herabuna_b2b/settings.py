@@ -110,7 +110,7 @@ LOGIN_FORM_PATH = "b2b.forms.CustomAuthenticationForm"
 MARKETPLACE_DEALER_USERNAME = os.environ.get("MARKETPLACE_DEALER_USERNAME", "marketplace")
 
 # Rozetka Seller API (orders import)
-ROZETKA_API_URL = os.environ.get("ROZETKA_API_URL", "https://api.seller.rozetka.com.ua")
+ROZETKA_API_URL = os.environ.get("ROZETKA_API_URL", "https://api-seller.rozetka.com.ua")
 ROZETKA_USERNAME = os.environ.get("ROZETKA_USERNAME", "")
 # IMPORTANT: Rozetka password must be base64-encoded (per Rozetka API docs).
 ROZETKA_PASSWORD_B64 = os.environ.get("ROZETKA_PASSWORD_B64", "")
