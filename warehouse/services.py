@@ -178,6 +178,28 @@ def ensure_order_reserved(order: Order) -> None:
     order.recalc()
 
 
+@transaction.atomic
+def rereserve_order(order: Order) -> None:
+    """Rebuild FIFO reservations for an order regardless of current status.
+
+    Use this when staff edits order items/qty after the initial reservation step.
+    We first release existing reservations, then reserve again for current items.
+
+    Allowed statuses: draft/submitted/pending_payment.
+    """
+    if order.status not in {"draft", "submitted", "pending_payment"}:
+        return
+
+    touched: set[int] = set()
+    touched |= _release_existing_reservations(order=order, reason="edit")
+
+    for item in order.items.select_related("product", "variant").all():
+        touched |= _reserve_order_item(item)
+
+    _recompute_products_stock(touched)
+    order.recalc()
+
+
 def _reserve_order_item(item: OrderItem) -> set[int]:
     product = item.product
     qty_need = int(item.qty or 0)

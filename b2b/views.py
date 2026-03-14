@@ -679,6 +679,152 @@ def _render_invoice_pdf_bytes(request, order):
 
 
 @user_passes_test(_is_staff)
+def order_admin_edit_items(request, order_id: int):
+    """Edit order items for staff.
+
+    Allowed statuses: submitted, pending_payment.
+    After saving, existing reservations are released and then reserved again using FIFO lots.
+    """
+    order = get_object_or_404(Order.objects.select_related("dealer"), id=order_id)
+    if order.status not in {"submitted", "pending_payment"}:
+        messages.error(request, "Редагування доступне лише для статусів 'Надіслано' або 'Очікує оплату'.")
+        return redirect("b2b:order_detail", order_id=order.id)
+
+    def _available_product_choices():
+        """Return choices for products that can be ordered.
+
+        Include current order items even if they are out of stock to keep the form stable.
+        """
+        qs = (
+            Product.objects.filter(is_active=True, wholesale_price__gt=0, stock_qty__gt=0)
+            .order_by("name")
+        )
+
+        choices = [("", "— виберіть товар —")]
+        seen: set[str] = set()
+        for p in qs:
+            sku = (p.sku or "").strip()
+            if not sku or sku in seen:
+                continue
+            choices.append((sku, f"{sku} — {p.name} (залишок {p.stock_qty})"))
+            seen.add(sku)
+
+        # Ensure current items remain selectable
+        for it in order.items.select_related("product").all():
+            p = it.product
+            sku = (p.sku or "").strip()
+            if not sku or sku in seen:
+                continue
+            label = f"{sku} — {p.name}"
+            if int(getattr(p, "stock_qty", 0) or 0) > 0:
+                label += f" (залишок {p.stock_qty})"
+            else:
+                label += " (немає в наявності)"
+            choices.append((sku, label))
+            seen.add(sku)
+
+        return choices
+
+    product_choices = _available_product_choices()
+
+    if request.method == "POST":
+        formset = AdminOrderLineFormSet(
+            request.POST,
+            prefix="line",
+            form_kwargs={"product_choices": product_choices},
+        )
+
+        if formset.is_valid():
+            raw_lines: list[tuple[str, int]] = []
+            for f in formset.forms:
+                if not f.cleaned_data or f.cleaned_data.get("DELETE"):
+                    continue
+                sku = (f.cleaned_data.get("sku") or "").strip()
+                qty = int(f.cleaned_data.get("qty") or 0)
+                if not sku or qty <= 0:
+                    continue
+                raw_lines.append((sku, qty))
+
+            if not raw_lines:
+                messages.error(request, "Додайте хоча б один рядок (товар + кількість).")
+                return render(request, "b2b/order_admin_edit.html", {"order": order, "formset": formset})
+
+            aggregated: dict[int, dict] = {}
+            errors: list[str] = []
+
+            for sku, qty in raw_lines:
+                p = Product.objects.filter(sku__iexact=sku).first()
+                if not p:
+                    errors.append(f"SKU не знайдено: {sku}")
+                    continue
+
+                try:
+                    price_val = Decimal(str(p.wholesale_price or 0))
+                except Exception:
+                    price_val = Decimal("0")
+                if price_val <= 0:
+                    errors.append(f"Для SKU {sku} не задано гуртову ціну.")
+                    continue
+
+                pid = int(p.id)
+                if pid not in aggregated:
+                    aggregated[pid] = {"product": p, "qty": 0, "price": price_val}
+                aggregated[pid]["qty"] += int(qty)
+
+            if errors:
+                for e in errors:
+                    messages.error(request, e)
+                return render(request, "b2b/order_admin_edit.html", {"order": order, "formset": formset})
+
+            try:
+                with transaction.atomic():
+                    # Release existing reservations first
+                    wh.cancel_order(order)
+
+                    # Replace items
+                    order.items.all().delete()
+                    for rec in aggregated.values():
+                        OrderItem.objects.create(
+                            order=order,
+                            product=rec["product"],
+                            variant=None,
+                            qty=int(rec["qty"]),
+                            price=rec["price"],
+                            variant_attrs={},
+                        )
+
+                    # Reserve again for allowed statuses
+                    wh.ensure_order_reserved(order)
+                    order.recalc()
+                    order.save(update_fields=["subtotal", "total"])
+
+            except wh.WarehouseError as e:
+                messages.error(request, f"Недостатньо залишків: {e}")
+                return render(request, "b2b/order_admin_edit.html", {"order": order, "formset": formset})
+            except Exception as e:
+                messages.error(request, f"Не вдалося оновити замовлення: {e}")
+                return render(request, "b2b/order_admin_edit.html", {"order": order, "formset": formset})
+
+            messages.success(request, "Замовлення оновлено. Резерв перераховано.")
+            return redirect("b2b:order_detail", order_id=order.id)
+
+        # Invalid formset
+        return render(request, "b2b/order_admin_edit.html", {"order": order, "formset": formset})
+
+    # GET
+    initial = [
+        {"sku": it.product.sku, "qty": int(it.qty or 0)}
+        for it in order.items.select_related("product").all()
+    ]
+    formset = AdminOrderLineFormSet(
+        prefix="line",
+        initial=initial,
+        form_kwargs={"product_choices": product_choices},
+    )
+    return render(request, "b2b/order_admin_edit.html", {"order": order, "formset": formset})
+
+
+@user_passes_test(_is_staff)
 @require_http_methods(["POST"])
 @transaction.atomic
 def order_admin_action(request, order_id: int, action: str):
