@@ -1,32 +1,18 @@
 {% extends "b2b/base.html" %}
-{% block title %}Редагування замовлення #{{ order.id }} — Herabuna B2B{% endblock %}
+{% block title %}Редагувати замовлення #{{ order.id }} — Herabuna B2B{% endblock %}
 
 {% block content %}
 
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
   <div>
-    <h1 class="h4 mb-0">Редагування замовлення #{{ order.id }}</h1>
+    <h1 class="h4 mb-0">Редагувати позиції замовлення #{{ order.id }}</h1>
     <div class="text-muted small">
-      Доступно для статусів <span class="fw-semibold">submitted</span> / <span class="fw-semibold">pending_payment</span>.
-      Після збереження резерв буде перераховано.
+      Клієнт: <span class="fw-semibold">{{ order.dealer.username }}</span>
+      {% if order.dealer.company_name %} ({{ order.dealer.company_name }}){% endif %}
+      • Після збереження резерв буде перераховано.
     </div>
   </div>
   <a class="btn btn-outline-secondary" href="{% url 'b2b:order_detail' order.id %}">Назад</a>
-</div>
-
-<div class="card shadow-sm border-0 mb-3">
-  <div class="card-body">
-    <div class="row g-2">
-      <div class="col-md-6">
-        <div class="small text-muted">Клієнт</div>
-        <div class="fw-semibold">{{ order.dealer.username }}{% if order.dealer.company_name %}, {{ order.dealer.company_name }}{% endif %}</div>
-      </div>
-      <div class="col-md-6">
-        <div class="small text-muted">Поточний статус</div>
-        <div class="fw-semibold">{{ order.get_status_display }}</div>
-      </div>
-    </div>
-  </div>
 </div>
 
 <form method="post" class="card shadow-sm border-0">
@@ -34,8 +20,10 @@
   <div class="card-body">
 
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-      <h2 class="h6 mb-0">Позиції замовлення</h2>
-      <button type="button" class="btn btn-outline-primary btn-sm" id="addRowBtn">+ Додати рядок</button>
+      <h2 class="h6 mb-0">Рядки замовлення</h2>
+      <div class="d-flex gap-2">
+        <button type="button" class="btn btn-outline-primary btn-sm" id="addRowBtn">+ Додати рядок</button>
+      </div>
     </div>
 
     {{ formset.management_form }}

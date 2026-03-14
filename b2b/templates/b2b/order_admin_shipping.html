@@ -1,0 +1,198 @@
+{% extends "b2b/base.html" %}
+{% load form_extras %}
+
+{% block title %}Адреса доставки для замовлення #{{ order.id }} — Herabuna B2B{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="h4 mb-0">Адреса доставки (Нова Пошта) — Замовлення #{{ order.id }}</h2>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'b2b:order_detail' order.id %}">Назад</a>
+</div>
+
+{% if dealer_addresses %}
+<form method="post" class="card p-3 mb-3">
+  {% csrf_token %}
+  <input type="hidden" name="copy_from_address" value="1">
+  <div class="row g-2 align-items-end">
+    <div class="col-md-8">
+      <label class="form-label">Швидко заповнити з адреси клієнта</label>
+      <select class="form-select" name="address_id">
+        <option value="">— адреса за замовчуванням —</option>
+        {% for a in dealer_addresses %}
+          <option value="{{ a.id }}">{{ a.title }}: {{ a.city_name }} / {{ a.warehouse_name }}</option>
+        {% endfor %}
+      </select>
+      <div class="form-text">Якщо нічого не обрано — буде використана адреса за замовчуванням (якщо є).</div>
+    </div>
+    <div class="col-md-4">
+      <button class="btn btn-primary w-100">Заповнити</button>
+    </div>
+  </div>
+</form>
+{% endif %}
+
+<form method="post" class="card p-3">
+  {% csrf_token %}
+
+  {% if form.non_field_errors %}
+    <div class="alert alert-danger mb-3">{{ form.non_field_errors }}</div>
+  {% endif %}
+
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label">Місто (НП)</label>
+      <input type="text"
+             id="city_search"
+             class="form-control"
+             placeholder="Почніть вводити місто"
+             autocomplete="off"
+             list="city_list"
+             value="{{ form.shipping_city.value|default_if_none:'' }}"
+             required>
+      <datalist id="city_list"></datalist>
+      <input type="hidden" name="shipping_city" id="shipping_city" value="{{ form.shipping_city.value|default_if_none:'' }}">
+      <input type="hidden" name="shipping_city_ref" id="shipping_city_ref" value="{{ form.shipping_city_ref.value|default_if_none:'' }}">
+      {% if form.shipping_city.errors %}<div class="invalid-feedback d-block">{{ form.shipping_city.errors|join:", " }}</div>{% endif %}
+    </div>
+
+    <div class="col-md-6">
+      <label class="form-label">Відділення (НП)</label>
+      <input type="text"
+             id="wh_search"
+             class="form-control"
+             placeholder="Введіть № або назву відділення"
+             autocomplete="off"
+             list="wh_list"
+             value="{{ form.shipping_warehouse.value|default_if_none:'' }}"
+             required>
+      <datalist id="wh_list"></datalist>
+      <input type="hidden" name="shipping_warehouse" id="shipping_warehouse" value="{{ form.shipping_warehouse.value|default_if_none:'' }}">
+      <input type="hidden" name="shipping_warehouse_ref" id="shipping_warehouse_ref" value="{{ form.shipping_warehouse_ref.value|default_if_none:'' }}">
+      {% if form.shipping_warehouse.errors %}<div class="invalid-feedback d-block">{{ form.shipping_warehouse.errors|join:", " }}</div>{% endif %}
+    </div>
+
+    <div class="col-md-6">
+      <label class="form-label" for="id_shipping_recipient">Одержувач</label>
+      {{ form.shipping_recipient|add_class:"form-control" }}
+      {% if form.shipping_recipient.errors %}<div class="invalid-feedback d-block">{{ form.shipping_recipient.errors|join:", " }}</div>{% endif %}
+    </div>
+
+    <div class="col-md-6">
+      <label class="form-label" for="id_shipping_phone">Телефон</label>
+      {{ form.shipping_phone|add_class:"form-control" }}
+      {% if form.shipping_phone.errors %}<div class="invalid-feedback d-block">{{ form.shipping_phone.errors|join:", " }}</div>{% endif %}
+      <div class="form-text">Формат: 380XXXXXXXXX</div>
+    </div>
+  </div>
+
+  <div class="mt-3 d-flex gap-2">
+    <button class="btn btn-primary">Зберегти</button>
+    <a class="btn btn-outline-secondary" href="{% url 'b2b:order_detail' order.id %}">Скасувати</a>
+  </div>
+</form>
+
+<script>
+const cityInput = document.getElementById('city_search');
+const cityList  = document.getElementById('city_list');
+const cityName  = document.getElementById('shipping_city');
+const cityRef   = document.getElementById('shipping_city_ref');
+
+const whInput = document.getElementById('wh_search');
+const whList  = document.getElementById('wh_list');
+const whName  = document.getElementById('shipping_warehouse');
+const whRef   = document.getElementById('shipping_warehouse_ref');
+
+const NP = { cities: new Map(), whs: new Map() };
+
+async function resolveCitySelection(){
+  const name = (cityInput.value||'').trim();
+  if(!name){
+    cityName.value=''; cityRef.value='';
+    whInput.value=''; whName.value=''; whRef.value=''; whList.innerHTML='';
+    return;
+  }
+  let ref = NP.cities.get(name) || '';
+  if(!ref){
+    const data = await fetchJSON(`{% url 'b2b:np_cities' %}?q=${encodeURIComponent(name)}`);
+    const rows = (data.results||[]);
+    const exact = rows.find(r=>r.name===name);
+    if(exact) ref = exact.ref;
+    else if(rows.length===1){
+      ref = rows[0].ref;
+      cityInput.value = rows[0].name;
+    }
+  }
+  cityName.value = (cityInput.value||'').trim();
+  cityRef.value = ref;
+
+  // Reset warehouses whenever city changes/gets resolved
+  whInput.value=''; whName.value=''; whRef.value=''; whList.innerHTML=''; NP.whs.clear();
+
+  if(ref){
+    const data = await fetchJSON(`{% url 'b2b:np_warehouses' %}?city_ref=${encodeURIComponent(ref)}`);
+    (data.results||[]).forEach(row=>{
+      NP.whs.set(row.name,row.ref);
+      const opt=document.createElement('option'); opt.value=row.name; whList.appendChild(opt);
+    });
+  }
+}
+
+async function resolveWarehouseSelection(){
+  const name = (whInput.value||'').trim();
+  const cRef = (cityRef.value||'').trim();
+  if(!name){ whName.value=''; whRef.value=''; return; }
+  let ref = NP.whs.get(name) || '';
+  if(!ref && cRef){
+    const data = await fetchJSON(`{% url 'b2b:np_warehouses' %}?city_ref=${encodeURIComponent(cRef)}&q=${encodeURIComponent(name)}`);
+    const rows = (data.results||[]);
+    const exact = rows.find(r=>r.name===name);
+    if(exact) ref = exact.ref;
+    else if(rows.length===1){
+      ref = rows[0].ref;
+      whInput.value = rows[0].name;
+    }
+  }
+  whName.value = (whInput.value||'').trim();
+  whRef.value = ref;
+}
+
+
+function debounce(fn, ms){ let t=null; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
+async function fetchJSON(url){ const r=await fetch(url,{headers:{"X-Requested-With":"XMLHttpRequest"}}); return r.ok? r.json(): {results:[]}; }
+
+const loadCities = debounce(async () => {
+  const q = (cityInput.value||'').trim(); if (!q){ cityList.innerHTML=''; return; }
+  const data = await fetchJSON(`{% url 'b2b:np_cities' %}?q=${encodeURIComponent(q)}`);
+  NP.cities.clear(); cityList.innerHTML='';
+  (data.results||[]).forEach(row=>{
+    NP.cities.set(row.name,row.ref);
+    const opt=document.createElement('option'); opt.value=row.name; cityList.appendChild(opt);
+  });
+}, 250);
+
+cityInput.addEventListener('input', (e) => {
+  loadCities();
+  const name = (cityInput.value||'').trim();
+  if (NP.cities.has(name)) { resolveCitySelection(); }
+});
+cityInput.addEventListener('change', () => { resolveCitySelection(); });
+cityInput.addEventListener('blur', () => { resolveCitySelection(); });
+const loadWarehouses = debounce(async () => {
+  const ref = cityRef.value; const q=(whInput.value||'').trim(); if(!ref) return;
+  const data = await fetchJSON(`{% url 'b2b:np_warehouses' %}?city_ref=${encodeURIComponent(ref)}&q=${encodeURIComponent(q)}`);
+  NP.whs.clear(); whList.innerHTML='';
+  (data.results||[]).forEach(row=>{
+    NP.whs.set(row.name,row.ref);
+    const opt=document.createElement('option'); opt.value=row.name; whList.appendChild(opt);
+  });
+}, 250);
+
+whInput.addEventListener('input', (e) => {
+  loadWarehouses();
+  const name = (whInput.value||'').trim();
+  if (NP.whs.has(name)) { resolveWarehouseSelection(); }
+});
+whInput.addEventListener('change', () => { resolveWarehouseSelection(); });
+whInput.addEventListener('blur', () => { resolveWarehouseSelection(); });
+</script>
+{% endblock %}

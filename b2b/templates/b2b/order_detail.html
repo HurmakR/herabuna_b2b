@@ -2,15 +2,15 @@
 {% block title %}Замовлення #{{ order.id }} — Herabuna B2B{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <div class="d-flex align-items-center gap-2 flex-wrap">
-    <h2 class="h4 mb-0">Замовлення #{{ order.id }}</h2>
+  <h2 class="h4 mb-0">Замовлення #{{ order.id }}</h2>
+  <div class="d-flex align-items-center gap-2">
     <span class="badge text-bg-secondary">{{ order.get_status_display }}</span>
-  </div>
-  {% if request.user.is_staff %}
-    {% if order.status == 'submitted' or order.status == 'pending_payment' %}
-      <a class="btn btn-outline-primary btn-sm" href="{% url 'b2b:order_admin_edit_items' order.id %}">Редагувати позиції</a>
-    {% endif %}
+    {% if request.user.is_staff %}
+  {% if order.status == 'submitted' or order.status == 'pending_payment' %}
+    <a class="btn btn-sm btn-outline-primary" href="{% url 'b2b:order_admin_edit_items' order.id %}">Редагувати позиції</a>
   {% endif %}
+{% endif %}
+  </div>
 </div>
 
 <div class="row g-3 mb-3">
@@ -28,11 +28,24 @@
   </div>
   <div class="col-md-6">
     <div class="card">
-      <div class="card-header">Доставка (Нова Пошта)</div>
+      <div class="card-header d-flex justify-content-between align-items-center">
+  <span>Доставка (Нова Пошта)</span>
+  <span class="d-flex align-items-center gap-2">
+    {% if order.shipping_city_ref and order.shipping_warehouse_ref and order.shipping_recipient and order.shipping_phone %}
+      <span class="badge text-bg-success">OK</span>
+    {% else %}
+      <span class="badge text-bg-warning">Не заповнено</span>
+    {% endif %}
+    {% if request.user.is_staff %}
+      <a class="btn btn-sm btn-outline-primary" href="{% url 'b2b:order_admin_edit_shipping' order.id %}">Адреса</a>
+    {% endif %}
+  </span>
+</div>
       <div class="card-body">
-        <div>{{ order.shipping_city }}</div>
-        <div class="small text-muted">{{ order.shipping_warehouse }}</div>
-        <div class="small mt-2">Одержувач: {{ order.shipping_recipient }} ({{ order.shipping_phone }})</div>
+        <div>{% if order.shipping_city %}{{ order.shipping_city }}{% else %}<span class="text-muted">—</span>{% endif %}</div>
+        <div class="small text-muted">{% if order.shipping_warehouse %}{{ order.shipping_warehouse }}{% else %}—{% endif %}</div>
+        <div class="small mt-2">Одержувач: {% if order.shipping_recipient %}{{ order.shipping_recipient }}{% else %}—{% endif %} ({% if order.shipping_phone %}{{ order.shipping_phone }}{% else %}—{% endif %})</div>
+        <div class="small mt-2">Вага: {% if order_weight_kg %}<strong>{{ order_weight_kg|floatformat:1 }}</strong> кг{% else %}—{% endif %}</div>
         {% if order.shipping_ttn %}
           <div class="mt-2">ТТН: <span class="fw-semibold">{{ order.shipping_ttn }}</span></div>
         {% endif %}

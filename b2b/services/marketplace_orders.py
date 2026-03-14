@@ -152,6 +152,44 @@ def upsert_external_order(
     if update_fields:
         order.save(update_fields=sorted(set(update_fields)))
 
+
+    # Best-effort prefill shipping snapshot for Woo orders (do not overwrite manual edits).
+    if channel == 'woo':
+        raw = (payload or {}).get('raw') or {}
+        billing = raw.get('billing') or (payload or {}).get('billing') or {}
+        shipping = raw.get('shipping') or (payload or {}).get('shipping') or {}
+
+        updated_ship_fields: List[str] = []
+
+        if not (order.shipping_city or '').strip():
+            city = str(shipping.get('city') or billing.get('city') or '').strip()
+            if city:
+                order.shipping_city = city
+                updated_ship_fields.append('shipping_city')
+
+        if not (order.shipping_warehouse or '').strip():
+            wh = str(shipping.get('address_1') or shipping.get('address_2') or '').strip()
+            if wh:
+                order.shipping_warehouse = wh
+                updated_ship_fields.append('shipping_warehouse')
+
+        if not (order.shipping_recipient or '').strip():
+            fn = str(shipping.get('first_name') or billing.get('first_name') or '').strip()
+            ln = str(shipping.get('last_name') or billing.get('last_name') or '').strip()
+            rec = (fn + ' ' + ln).strip()
+            if rec:
+                order.shipping_recipient = rec
+                updated_ship_fields.append('shipping_recipient')
+
+        if not (order.shipping_phone or '').strip():
+            phone = str(billing.get('phone') or '').strip()
+            if phone:
+                order.shipping_phone = phone
+                updated_ship_fields.append('shipping_phone')
+
+        if updated_ship_fields:
+            order.save(update_fields=updated_ship_fields)
+
     # Normalize item keys and merge duplicates
     wanted: Dict[Tuple[int, int], Dict[str, Any]] = {}
     unmatched: List[dict] = []

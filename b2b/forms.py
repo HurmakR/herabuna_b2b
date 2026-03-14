@@ -1,5 +1,6 @@
 # b2b/forms.py
 from django import forms
+import re
 from django.core.validators import RegexValidator
 from django.contrib.auth import get_user_model
 from django.forms import formset_factory
@@ -174,3 +175,40 @@ class AdminOrderLineForm(forms.Form):
 
 
 AdminOrderLineFormSet = formset_factory(AdminOrderLineForm, extra=1, can_delete=True)
+
+# -------- Staff: edit order shipping (Nova Poshta snapshot on Order) --------
+class OrderShippingForm(forms.Form):
+    shipping_city = forms.CharField(label='Місто (НП)', required=True)
+    shipping_city_ref = forms.CharField(required=True, widget=forms.HiddenInput)
+    shipping_warehouse = forms.CharField(label='Відділення (НП)', required=True)
+    shipping_warehouse_ref = forms.CharField(required=True, widget=forms.HiddenInput)
+    shipping_recipient = forms.CharField(label='Одержувач', required=True)
+    shipping_phone = forms.CharField(
+        label='Телефон одержувача',
+        required=True,
+        max_length=32,
+        widget=forms.TextInput(
+            attrs={
+                'placeholder': '380XXXXXXXXX',
+                'inputmode': 'numeric',
+                'pattern': r'380\d{9}',
+            }
+        ),
+        help_text='Формат: 380XXXXXXXXX (без +, пробілів і дужок).',
+    )
+
+    def clean_shipping_phone(self):
+        raw = self.cleaned_data.get('shipping_phone')
+        s = str(raw or '').strip()
+        digits = re.sub(r'\D+', '', s)
+        if not digits:
+            raise forms.ValidationError('Вкажіть телефон у форматі 380XXXXXXXXX.')
+        # Common local format: 0XXXXXXXXX (10 digits)
+        if len(digits) == 10 and digits.startswith('0'):
+            digits = '38' + digits
+        # Fix 80XXXXXXXXX -> 380XXXXXXXXX
+        if len(digits) == 11 and digits.startswith('80'):
+            digits = '3' + digits
+        if not re.fullmatch(r'380\d{9}', digits):
+            raise forms.ValidationError('Введіть номер у форматі 380XXXXXXXXX (без +, пробілів і дужок).')
+        return digits

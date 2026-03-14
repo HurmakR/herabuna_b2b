@@ -30,6 +30,7 @@ from .forms import (
     AddressForm,
     AdminOrderCreateForm,
     AdminOrderLineFormSet,
+    OrderShippingForm,
 )
 from .models import Brand, Category, Order, OrderItem, Product, ProductVariant, Address, Dealer
 from .services import woo_sync, np_api, telegram as tg
@@ -480,11 +481,46 @@ def order_detail(request, order_id):
     order = get_object_or_404(Order, id=order_id)
     if not (request.user.is_staff or order.dealer_id == request.user.id):
         return HttpResponseForbidden("Forbidden")
-    return render(request, "b2b/order_detail.html", {"order": order})
+
+    # Display-only: compute total weight for UI.
+    try:
+        order_weight_kg = np_api._compute_order_weight_kg(order)
+    except Exception:
+        order_weight_kg = None
+
+    return render(
+        request,
+        "b2b/order_detail.html",
+        {"order": order, "order_weight_kg": order_weight_kg},
+    )
 
 
 # ---- Staff views ----
 def _is_staff(u): return u.is_staff
+
+def _np_phone_digits(raw: str) -> str:
+    """Return phone as digits in 380XXXXXXXXX format when possible (no leading '+')."""
+    try:
+        norm = np_api._normalize_phone(raw or "")
+    except Exception:
+        norm = ""
+    if norm.startswith("+"):
+        norm = norm[1:]
+    # Fallback: keep digits only
+    if not norm:
+        norm = "".join(ch for ch in str(raw or "") if ch.isdigit())
+    return norm
+
+
+def _np_recipient_ready(order) -> bool:
+    """Check that NP recipient snapshot is complete enough to create a TTN."""
+    city_ref = (getattr(order, "shipping_city_ref", "") or "").strip()
+    wh_ref = (getattr(order, "shipping_warehouse_ref", "") or "").strip()
+    recip = (getattr(order, "shipping_recipient", "") or "").strip()
+    phone_digits = _np_phone_digits(getattr(order, "shipping_phone", "") or "")
+    if not (city_ref and wh_ref and recip):
+        return False
+    return phone_digits.isdigit() and len(phone_digits) == 12 and phone_digits.startswith("380")
 
 @user_passes_test(_is_staff)
 def orders_admin(request):
@@ -634,6 +670,28 @@ def order_admin_create(request):
             try:
                 order = Order.objects.create(dealer=dealer, status="draft", note=note)
 
+                # Auto-fill shipping snapshot from dealer's default address (best-effort).
+                addr = (
+                    Address.objects.filter(dealer=dealer)
+                    .order_by('-is_default', '-created_at')
+                    .first()
+                )
+                if addr:
+                    order.shipping_address = addr
+                    order.shipping_city = addr.city_name
+                    order.shipping_city_ref = addr.city_ref or ''
+                    order.shipping_warehouse = addr.warehouse_name
+                    order.shipping_warehouse_ref = addr.warehouse_ref or ''
+                    order.shipping_recipient = addr.recipient_name
+                    order.shipping_phone = _np_phone_digits(addr.recipient_phone)
+                    order.save(update_fields=[
+                        'shipping_address',
+                        'shipping_city', 'shipping_city_ref',
+                        'shipping_warehouse', 'shipping_warehouse_ref',
+                        'shipping_recipient', 'shipping_phone',
+                    ])
+
+
                 for rec in aggregated.values():
                     OrderItem.objects.create(
                         order=order,
@@ -670,106 +728,113 @@ def order_admin_create(request):
     return render(request, "b2b/order_admin_create.html", {"header_form": header_form, "formset": formset})
 
 
-def _render_invoice_pdf_bytes(request, order):
-    """Render invoice HTML to PDF bytes; return None if WeasyPrint not available."""
-    if not WEASYPRINT_AVAILABLE:
-        return None
-    html_string = render(request, "b2b/invoice_print.html", {"order": order}).content.decode("utf-8")
-    return HTML(string=html_string, base_url=request.build_absolute_uri("/")).write_pdf()
-
-
 @user_passes_test(_is_staff)
 def order_admin_edit_items(request, order_id: int):
-    """Edit order items for staff.
+    """Edit items for an existing order (staff-only).
 
     Allowed statuses: submitted, pending_payment.
-    After saving, existing reservations are released and then reserved again using FIFO lots.
+    After saving, reservations are released and re-applied using FIFO lots.
     """
-    order = get_object_or_404(Order.objects.select_related("dealer"), id=order_id)
+    order = get_object_or_404(Order, id=order_id)
+
     if order.status not in {"submitted", "pending_payment"}:
-        messages.error(request, "Редагування доступне лише для статусів 'Надіслано' або 'Очікує оплату'.")
+        messages.error(request, "Редагування доступне тільки для замовлень у статусі 'Надіслано' або 'Очікує оплату'.")
         return redirect("b2b:order_detail", order_id=order.id)
 
-    def _available_product_choices():
-        """Return choices for products that can be ordered.
+    # Build choices: keep existing variants as options, plus products list.
+    products_qs = Product.objects.filter(is_active=True, wholesale_price__gt=0).order_by("name")
+    product_choices = [(f"p:{p.id}", f"{p.sku} — {p.name} (залишок {p.stock_qty})") for p in products_qs]
 
-        Include current order items even if they are out of stock to keep the form stable.
-        """
-        qs = (
-            Product.objects.filter(is_active=True, wholesale_price__gt=0, stock_qty__gt=0)
-            .order_by("name")
-        )
+    existing_variant_ids = list(
+        order.items.exclude(variant_id=None).values_list("variant_id", flat=True).distinct()
+    )
+    variant_choices = []
+    if existing_variant_ids:
+        for v in ProductVariant.objects.select_related("product").filter(id__in=existing_variant_ids):
+            label = f"{v.product.sku} — {v.name_with_weight}"
+            variant_choices.append((f"v:{v.id}", label))
 
-        choices = [("", "— виберіть товар —")]
-        seen: set[str] = set()
-        for p in qs:
-            sku = (p.sku or "").strip()
-            if not sku or sku in seen:
-                continue
-            choices.append((sku, f"{sku} — {p.name} (залишок {p.stock_qty})"))
-            seen.add(sku)
+    choices = [("", "— виберіть товар —"), *variant_choices, *product_choices]
 
-        # Ensure current items remain selectable
-        for it in order.items.select_related("product").all():
-            p = it.product
-            sku = (p.sku or "").strip()
-            if not sku or sku in seen:
-                continue
-            label = f"{sku} — {p.name}"
-            if int(getattr(p, "stock_qty", 0) or 0) > 0:
-                label += f" (залишок {p.stock_qty})"
-            else:
-                label += " (немає в наявності)"
-            choices.append((sku, label))
-            seen.add(sku)
-
-        return choices
-
-    product_choices = _available_product_choices()
+    initial = []
+    for it in order.items.select_related("product", "variant").all():
+        key = f"v:{it.variant_id}" if it.variant_id else f"p:{it.product_id}"
+        initial.append({"sku": key, "qty": int(it.qty or 0)})
 
     if request.method == "POST":
         formset = AdminOrderLineFormSet(
             request.POST,
             prefix="line",
-            form_kwargs={"product_choices": product_choices},
+            form_kwargs={"product_choices": choices},
         )
-
         if formset.is_valid():
-            raw_lines: list[tuple[str, int]] = []
+            raw_lines = []
             for f in formset.forms:
                 if not f.cleaned_data or f.cleaned_data.get("DELETE"):
                     continue
-                sku = (f.cleaned_data.get("sku") or "").strip()
+                key = (f.cleaned_data.get("sku") or "").strip()
                 qty = int(f.cleaned_data.get("qty") or 0)
-                if not sku or qty <= 0:
+                if not key or qty <= 0:
                     continue
-                raw_lines.append((sku, qty))
+                raw_lines.append((key, qty))
 
             if not raw_lines:
                 messages.error(request, "Додайте хоча б один рядок (товар + кількість).")
                 return render(request, "b2b/order_admin_edit.html", {"order": order, "formset": formset})
 
-            aggregated: dict[int, dict] = {}
-            errors: list[str] = []
+            # Aggregate duplicates to avoid unique_together conflicts.
+            aggregated = {}  # key=(product_id, variant_id or 0) -> dict
+            errors = []
+            for key, qty in raw_lines:
+                product = None
+                variant = None
+                attrs = {}
 
-            for sku, qty in raw_lines:
-                p = Product.objects.filter(sku__iexact=sku).first()
-                if not p:
-                    errors.append(f"SKU не знайдено: {sku}")
+                if key.startswith("v:"):
+                    try:
+                        vid = int(key.split(":", 1)[1])
+                        variant = ProductVariant.objects.select_related("product").get(id=vid)
+                        product = variant.product
+                        attrs = variant.attributes or {}
+                    except Exception:
+                        errors.append(f"Варіант не знайдено: {key}")
+                        continue
+                elif key.startswith("p:"):
+                    try:
+                        pid = int(key.split(":", 1)[1])
+                        product = Product.objects.get(id=pid)
+                    except Exception:
+                        errors.append(f"Товар не знайдено: {key}")
+                        continue
+                else:
+                    errors.append(f"Некоректне значення: {key}")
                     continue
+
+                price = None
+                if variant and (variant.wholesale_price or 0) > 0:
+                    price = variant.wholesale_price
+                else:
+                    price = product.wholesale_price
 
                 try:
-                    price_val = Decimal(str(p.wholesale_price or 0))
+                    price_val = Decimal(str(price or 0))
                 except Exception:
                     price_val = Decimal("0")
+
                 if price_val <= 0:
-                    errors.append(f"Для SKU {sku} не задано гуртову ціну.")
+                    errors.append(f"Для {product.sku} не задано гуртову ціну.")
                     continue
 
-                pid = int(p.id)
-                if pid not in aggregated:
-                    aggregated[pid] = {"product": p, "qty": 0, "price": price_val}
-                aggregated[pid]["qty"] += int(qty)
+                agg_key = (int(product.id), int(variant.id) if variant else 0)
+                if agg_key not in aggregated:
+                    aggregated[agg_key] = {
+                        "product": product,
+                        "variant": variant,
+                        "qty": 0,
+                        "price": price_val,
+                        "attrs": attrs,
+                    }
+                aggregated[agg_key]["qty"] += int(qty)
 
             if errors:
                 for e in errors:
@@ -778,50 +843,126 @@ def order_admin_edit_items(request, order_id: int):
 
             try:
                 with transaction.atomic():
-                    # Release existing reservations first
-                    wh.cancel_order(order)
+                    # 1) Release existing reservations tied to current items
+                    wh.release_order_reservations(order, reason="manual edit")
 
-                    # Replace items
+                    # 2) Replace items
                     order.items.all().delete()
                     for rec in aggregated.values():
                         OrderItem.objects.create(
                             order=order,
                             product=rec["product"],
-                            variant=None,
+                            variant=rec["variant"],
                             qty=int(rec["qty"]),
                             price=rec["price"],
-                            variant_attrs={},
+                            variant_attrs=rec["attrs"] or {},
                         )
 
-                    # Reserve again for allowed statuses
-                    wh.ensure_order_reserved(order)
                     order.recalc()
-                    order.save(update_fields=["subtotal", "total"])
+
+                    # 3) Reserve again for new items
+                    wh.ensure_order_reserved(order)
 
             except wh.WarehouseError as e:
-                messages.error(request, f"Недостатньо залишків: {e}")
-                return render(request, "b2b/order_admin_edit.html", {"order": order, "formset": formset})
-            except Exception as e:
-                messages.error(request, f"Не вдалося оновити замовлення: {e}")
+                messages.error(request, f"Не вдалося перерахувати резерв: {e}")
                 return render(request, "b2b/order_admin_edit.html", {"order": order, "formset": formset})
 
             messages.success(request, "Замовлення оновлено. Резерв перераховано.")
             return redirect("b2b:order_detail", order_id=order.id)
 
-        # Invalid formset
-        return render(request, "b2b/order_admin_edit.html", {"order": order, "formset": formset})
+    else:
+        formset = AdminOrderLineFormSet(
+            prefix="line",
+            initial=initial,
+            form_kwargs={"product_choices": choices},
+        )
 
-    # GET
-    initial = [
-        {"sku": it.product.sku, "qty": int(it.qty or 0)}
-        for it in order.items.select_related("product").all()
-    ]
-    formset = AdminOrderLineFormSet(
-        prefix="line",
-        initial=initial,
-        form_kwargs={"product_choices": product_choices},
-    )
     return render(request, "b2b/order_admin_edit.html", {"order": order, "formset": formset})
+
+
+
+@user_passes_test(_is_staff)
+def order_admin_edit_shipping(request, order_id: int):
+    order = get_object_or_404(Order, id=order_id)
+
+    default_addr = (
+        Address.objects.filter(dealer=order.dealer)
+        .order_by('-is_default', '-created_at')
+        .first()
+    )
+    dealer_addresses = Address.objects.filter(dealer=order.dealer).order_by('-is_default', '-created_at')
+
+    if request.method == 'POST' and request.POST.get('copy_from_address'):
+        addr_id = request.POST.get('address_id')
+        if addr_id:
+            addr = get_object_or_404(Address, id=addr_id, dealer=order.dealer)
+        else:
+            addr = default_addr
+        if not addr:
+            messages.error(request, 'У клієнта немає збережених адрес.')
+            return redirect('b2b:order_admin_edit_shipping', order_id=order.id)
+
+        order.shipping_address = addr
+        order.shipping_city = addr.city_name
+        order.shipping_city_ref = addr.city_ref or ''
+        order.shipping_warehouse = addr.warehouse_name
+        order.shipping_warehouse_ref = addr.warehouse_ref or ''
+        order.shipping_recipient = addr.recipient_name
+        order.shipping_phone = _np_phone_digits(addr.recipient_phone)
+        order.save(update_fields=[
+            'shipping_address',
+            'shipping_city', 'shipping_city_ref',
+            'shipping_warehouse', 'shipping_warehouse_ref',
+            'shipping_recipient', 'shipping_phone',
+        ])
+        messages.success(request, 'Адресу доставки оновлено з профілю клієнта.')
+        return redirect('b2b:order_detail', order_id=order.id)
+
+    initial = {
+        'shipping_city': order.shipping_city or '',
+        'shipping_city_ref': order.shipping_city_ref or '',
+        'shipping_warehouse': order.shipping_warehouse or '',
+        'shipping_warehouse_ref': order.shipping_warehouse_ref or '',
+        'shipping_recipient': order.shipping_recipient or '',
+        'shipping_phone': _np_phone_digits(order.shipping_phone or ''),
+    }
+
+    form = OrderShippingForm(initial=initial)
+    if request.method == 'POST':
+        form = OrderShippingForm(request.POST)
+        if form.is_valid():
+            order.shipping_address = None
+            order.shipping_city = form.cleaned_data['shipping_city']
+            order.shipping_city_ref = form.cleaned_data['shipping_city_ref']
+            order.shipping_warehouse = form.cleaned_data['shipping_warehouse']
+            order.shipping_warehouse_ref = form.cleaned_data['shipping_warehouse_ref']
+            order.shipping_recipient = form.cleaned_data['shipping_recipient']
+            order.shipping_phone = _np_phone_digits(form.cleaned_data['shipping_phone'])
+            order.save(update_fields=[
+                'shipping_address',
+                'shipping_city', 'shipping_city_ref',
+                'shipping_warehouse', 'shipping_warehouse_ref',
+                'shipping_recipient', 'shipping_phone',
+            ])
+            messages.success(request, 'Адресу доставки збережено.')
+            return redirect('b2b:order_detail', order_id=order.id)
+
+    return render(
+        request,
+        'b2b/order_admin_shipping.html',
+        {
+            'order': order,
+            'form': form,
+            'dealer_addresses': dealer_addresses,
+            'default_addr': default_addr,
+        },
+    )
+def _render_invoice_pdf_bytes(request, order):
+    """Render invoice HTML to PDF bytes; return None if WeasyPrint not available."""
+    if not WEASYPRINT_AVAILABLE:
+        return None
+    html_string = render(request, "b2b/invoice_print.html", {"order": order}).content.decode("utf-8")
+    return HTML(string=html_string, base_url=request.build_absolute_uri("/")).write_pdf()
 
 
 @user_passes_test(_is_staff)
@@ -896,6 +1037,11 @@ def order_admin_action(request, order_id: int, action: str):
         if order.status != "pending_payment":
             messages.error(request, "Відвантажити можна лише замовлення, що очікує оплату.")
             return redirect("b2b:orders_admin")
+
+        # Validate NP recipient snapshot before creating TTN.
+        if not _np_recipient_ready(order):
+            messages.error(request, 'Заповніть адресу доставки (Нова Пошта) перед відвантаженням.')
+            return redirect('b2b:order_admin_edit_shipping', order_id=order.id)
 
         # Ensure we have valid reservations before generating TTN.
         try:
@@ -1095,7 +1241,7 @@ def order_checkout_confirm(request):
     order.shipping_warehouse = addr.warehouse_name
     order.shipping_warehouse_ref = addr.warehouse_ref or ""
     order.shipping_recipient = addr.recipient_name
-    order.shipping_phone = addr.recipient_phone
+    order.shipping_phone = _np_phone_digits(addr.recipient_phone)
 
     # Recalculate totals and persist
     order.recalc()

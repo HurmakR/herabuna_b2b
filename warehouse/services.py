@@ -132,6 +132,18 @@ def _release_existing_reservations(*, order: Order, reason: str) -> set[int]:
 
 
 @transaction.atomic
+def release_order_reservations(order: Order, *, reason: str = "manual release") -> None:
+    """Release all existing reservations for an order and recompute stock.
+
+    This is safe to call before editing order items. It adjusts lot.qty_reserved
+    and removes InventoryReservation rows.
+    """
+    touched = _release_existing_reservations(order=order, reason=reason)
+    _recompute_products_stock(touched)
+
+
+
+@transaction.atomic
 def reserve_order(order: Order) -> None:
     """Reserve stock for a *draft* order using FIFO lots."""
     if order.status != "draft":
@@ -171,28 +183,6 @@ def ensure_order_reserved(order: Order) -> None:
         return
 
     touched: set[int] = set()
-    for item in order.items.select_related("product", "variant").all():
-        touched |= _reserve_order_item(item)
-
-    _recompute_products_stock(touched)
-    order.recalc()
-
-
-@transaction.atomic
-def rereserve_order(order: Order) -> None:
-    """Rebuild FIFO reservations for an order regardless of current status.
-
-    Use this when staff edits order items/qty after the initial reservation step.
-    We first release existing reservations, then reserve again for current items.
-
-    Allowed statuses: draft/submitted/pending_payment.
-    """
-    if order.status not in {"draft", "submitted", "pending_payment"}:
-        return
-
-    touched: set[int] = set()
-    touched |= _release_existing_reservations(order=order, reason="edit")
-
     for item in order.items.select_related("product", "variant").all():
         touched |= _reserve_order_item(item)
 
