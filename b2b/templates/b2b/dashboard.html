@@ -1,7 +1,209 @@
 {% extends "b2b/base.html" %}
 {% block title %}Мої замовлення — Herabuna B2B{% endblock %}
 {% block content %}
-<h2 class="h4 mb-3">Мої замовлення</h2>
+<style>
+  /* Top-5: disable any hover-driven layout/transform "shake" only inside this widget */
+  .top5-wrap .top5-strip{
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-gutter: stable both-edges;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px; /* reserve space to avoid scrollbar jump */
+  }
+
+  /* Kill transforms / transitions that may be applied globally on card hover */
+  .top5-wrap .top5-card,
+  .top5-wrap .top5-card:hover,
+  .top5-wrap .top5-card:focus,
+  .top5-wrap .top5-card:active,
+  .top5-wrap .top5-card:focus-within{
+    transform: none !important;
+    transition: none !important;
+    animation: none !important;
+    top: 0 !important;
+  }
+
+  /* Keep border/shadow stable */
+  .top5-wrap .top5-card{
+    box-shadow: var(--bs-box-shadow-sm) !important;
+    border-width: 1px !important;
+  }
+  .top5-wrap .top5-card:hover{
+    box-shadow: var(--bs-box-shadow-sm) !important;
+    border-width: 1px !important;
+  }
+
+  /* Prevent child elements from inheriting transforms */
+  .top5-wrap .top5-card *{
+    transform: none !important;
+  }
+
+  /* Prevent header scroll/layout jump */
+  .top5-wrap .card-header{
+    scrollbar-gutter: stable both-edges;
+  }
+
+  /* Also neutralize hover effects on the outer Top-5 card itself */
+  .top5-wrap,
+  .top5-wrap:hover,
+  .top5-wrap:focus,
+  .top5-wrap:active{
+    transform: none !important;
+    transition: none !important;
+    animation: none !important;
+  }
+
+</style>
+
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <h2 class="h4 mb-0">Мої замовлення</h2>
+
+  <form method="get" class="d-flex align-items-center gap-2">
+    <input type="hidden" name="top_by" value="{{ top_by|default:'qty' }}">
+    <input type="hidden" name="top_scope" value="{{ top_scope|default:'mine' }}">
+    <span class="small text-muted">Період:</span>
+    <select name="period" class="form-select form-select-sm" onchange="this.form.submit()" style="min-width: 170px;">
+      <option value="30"  {% if period == '30' %}selected{% endif %}>Останні 30 днів</option>
+      <option value="90"  {% if period == '90' %}selected{% endif %}>Останні 90 днів</option>
+      <option value="365" {% if period == '365' %}selected{% endif %}>Останній рік</option>
+      <option value="all" {% if period == 'all' %}selected{% endif %}>Весь час</option>
+    </select>
+  </form>
+</div>
+
+<div class="row g-2 mb-3">
+  <div class="col-6 col-lg-3">
+    <div class="card shadow-sm">
+      <div class="card-body py-2">
+        <div class="text-muted small">Замовлень</div>
+        <div class="h5 mb-0">{{ summary.orders_count|default:0 }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card shadow-sm">
+      <div class="card-body py-2">
+        <div class="text-muted small">Відправлено</div>
+        <div class="h5 mb-0">{{ summary.shipped_count|default:0 }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card shadow-sm">
+      <div class="card-body py-2">
+        <div class="text-muted small">В процесі</div>
+        <div class="h5 mb-0">{{ summary.pending_count|default:0 }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card shadow-sm">
+      <div class="card-body py-2">
+        <div class="text-muted small">Скасовано</div>
+        <div class="h5 mb-0">{{ summary.cancelled_count|default:0 }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-2 mb-3">
+  <div class="col-12 col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-body py-2">
+        <div class="text-muted small">Сума відправлених</div>
+        <div class="h5 mb-0">{{ summary.shipped_sum|default_if_none:0|floatformat:2 }} ₴</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-body py-2">
+        <div class="text-muted small">Товарів (шт)</div>
+        <div class="h5 mb-0">{{ items_summary.items_qty|default_if_none:0 }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-body py-2">
+        <div class="text-muted small">Середній чек</div>
+        <div class="h5 mb-0">{{ avg_shipped|default_if_none:0|floatformat:2 }} ₴</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if top_products %}
+  <div class="card shadow-sm mb-3 top5-wrap">
+    <div class="card-header d-flex flex-nowrap justify-content-between align-items-center gap-2 overflow-auto">
+      <div class="fw-semibold">
+        {{ top_scope_label }} товарів (відправлені)
+        {% if top_scope == 'mine' %}<span class="text-muted small text-nowrap">— {{ top_metric_label }}</span>{% endif %}
+      </div>
+
+      <div class="d-flex align-items-center gap-2">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Top scope switch">
+          <a class="btn btn-outline-secondary {% if top_scope == 'mine' %}active{% endif %}"
+             href="?period={{ period }}&top_scope=mine&top_by={{ top_by }}">Мій топ</a>
+          <a class="btn btn-outline-secondary {% if top_scope == 'all' %}active{% endif %}"
+             href="?period={{ period }}&top_scope=all&top_by={{ top_by }}">Топ загальний</a>
+        </div>
+        <div class="btn-group btn-group-sm" role="group" aria-label="Top products metric switch">
+            <a class="btn btn-outline-secondary {% if top_by == 'qty' %}active{% endif %}"
+               href="?period={{ period }}&top_scope={{ top_scope }}&top_by=qty">За кількістю</a>
+            <a class="btn btn-outline-secondary {% if top_by == 'sum' %}active{% endif %}"
+               href="?period={{ period }}&top_scope={{ top_scope }}&top_by=sum">За сумою</a>
+        </div>
+
+        <div class="small text-muted text-nowrap">{{ period_label }}</div>
+      </div>
+    </div>
+
+    <div class="card-body p-2">
+      <div class="d-flex flex-row flex-nowrap gap-2 top5-strip">
+        {% for t in top_products %}
+          <div class="card shadow-sm top5-card" style="min-width: 220px; max-width: 220px;">
+            <div class="bg-light d-flex align-items-center justify-content-center" style="height: 120px;">
+              {% if t.product__main_image_url %}
+                <img src="{{ t.product__main_image_url }}" alt="{{ t.product__name }}"
+                     style="max-height: 112px; max-width: 100%; object-fit: contain;">
+              {% else %}
+                <span class="text-muted small">Без фото</span>
+              {% endif %}
+            </div>
+            <div class="card-body p-2">
+              <div class="small text-muted">{{ t.product__sku }}</div>
+              <div class="fw-semibold small mb-1" style="line-height: 1.2; min-height: 2.4em;">
+                <a class="text-decoration-none" href="{% url 'b2b:product_detail' t.product_id %}">
+                  {{ t.product__name }}
+                </a>
+              </div>
+              {% if top_scope == 'mine' %}
+              <div class="small" style="min-height: 3.2em;">
+                <div class="text-nowrap">К-сть:
+                  {% if top_by == 'qty' %}
+                    <strong>{{ t.total_qty|default_if_none:0 }}</strong>
+                  {% else %}
+                    {{ t.total_qty|default_if_none:0 }}
+                  {% endif %}
+                </div>
+                <div class="text-nowrap">Сума:
+                  {% if top_by == 'sum' %}
+                    <strong>{{ t.total_sum|default_if_none:0|floatformat:2 }} ₴</strong>
+                  {% else %}
+                    {{ t.total_sum|default_if_none:0|floatformat:2 }} ₴
+                  {% endif %}
+                </div>
+              </div>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endif %}
+
 
 <div class="table-responsive">
   <table class="table table-striped table-bordered align-middle">

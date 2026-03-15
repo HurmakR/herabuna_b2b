@@ -83,12 +83,125 @@ def signup(request):
 
 @login_required
 def dashboard(request):
+    """Dealer dashboard: recent orders + a compact purchase summary."""
+    from datetime import timedelta
+    from decimal import Decimal
+
+    from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum
+    from django.utils import timezone
+
     # Show only non-draft orders; draft is the cart.
-    qs = request.user.order_set.exclude(status="draft").order_by("-created_at")[:20]
-    return render(request, "b2b/dashboard.html", {"orders": qs})
+    base_qs = request.user.order_set.exclude(status="draft")
+
+    period = (request.GET.get("period") or "365").strip()
+    top_scope = (request.GET.get("top_scope") or "mine").strip()  # mine | all
+    top_by = (request.GET.get("top_by") or "qty").strip()  # qty | sum
+
+    if top_scope not in {"mine", "all"}:
+        top_scope = "mine"
+    if top_by not in {"qty", "sum"}:
+        top_by = "qty"
+
+    # Default UX: dealer's top-5 by quantity
+    if "top_scope" not in request.GET:
+        top_scope = "mine"
+    if "top_by" not in request.GET:
+        top_by = "qty"
+
+    now = timezone.now()
+
+    period_options = {
+        "30": ("Останні 30 днів", now - timedelta(days=30)),
+        "90": ("Останні 90 днів", now - timedelta(days=90)),
+        "365": ("Останній рік", now - timedelta(days=365)),
+        "all": ("Весь час", None),
+    }
+    if period not in period_options:
+        period = "90"
+    period_label, since_dt = period_options[period]
+
+    period_qs = base_qs
+    if since_dt:
+        period_qs = period_qs.filter(created_at__gte=since_dt)
+
+    # Recent orders list (filtered by period)
+    orders = period_qs.order_by("-created_at")[:20]
+
+    summary = period_qs.aggregate(
+        orders_count=Count("id"),
+        total_sum=Sum("total"),
+        shipped_count=Count("id", filter=Q(status="shipped")),
+        shipped_sum=Sum("total", filter=Q(status="shipped")),
+        pending_count=Count("id", filter=Q(status__in=["submitted", "pending_payment"])),
+        cancelled_count=Count("id", filter=Q(status="cancelled")),
+    )
+
+    shipped_count = int(summary.get("shipped_count") or 0)
+    shipped_sum = summary.get("shipped_sum") or Decimal("0")
+    avg_shipped = (shipped_sum / shipped_count) if shipped_count else Decimal("0")
+
+    # Items stats (shipped only, to reflect actual purchases)
+    from .models import OrderItem
+
+    shipped_orders_qs = period_qs.filter(status="shipped")
+    items_summary = OrderItem.objects.filter(order__in=shipped_orders_qs).aggregate(
+        items_qty=Sum("qty"),
+    )
+
+    # ---- Top products ----
+    show_top_metrics = (top_scope == "mine")
+    top_scope_label = "Мій топ‑5" if top_scope == "mine" else "Топ‑5 по всіх дилерах"
+
+    money_expr = ExpressionWrapper(
+        F("qty") * F("price"),
+        output_field=DecimalField(max_digits=12, decimal_places=2),
+    )
+
+    if top_scope == "all":
+        # Overall top-5 across all dealers (shipped orders only).
+        top_items_base = OrderItem.objects.filter(order__status="shipped")
+        if since_dt:
+            top_items_base = top_items_base.filter(order__created_at__gte=since_dt)
+        top_by_effective = top_by
+    else:
+        # Dealer's own top-5 (shipped orders only).
+        top_items_base = OrderItem.objects.filter(order__in=shipped_orders_qs)
+        top_by_effective = top_by
+
+    top_products_qs = (
+        top_items_base.values("product_id", "product__sku", "product__name", "product__main_image_url")
+        .annotate(total_qty=Sum("qty"), total_sum=Sum(money_expr))
+    )
+
+    if top_by_effective == "sum":
+        top_products_qs = top_products_qs.order_by("-total_sum", "product__name")
+        top_metric_label = "за сумою"
+    else:
+        top_products_qs = top_products_qs.order_by("-total_qty", "product__name")
+        top_metric_label = "за кількістю"
+
+    top_products = top_products_qs[:5]
+
+    context = {
+        "orders": orders,
+        "period": period,
+        "period_label": period_label,
+        "summary": summary,
+        "avg_shipped": avg_shipped,
+        "items_summary": items_summary,
+        "top_products": top_products,
+        "top_by": top_by,
+        "top_scope": top_scope,
+        "top_scope_label": top_scope_label,
+        "top_metric_label": top_metric_label,
+        "show_top_metrics": show_top_metrics,
+    }
+    return render(request, "b2b/dashboard.html", context)
+
 
 # ---------- PROFILE ----------
 @login_required
+
 def profile_view(request):
     """Dealer profile with two tabs: profile form and addresses link."""
     form = ProfileForm(instance=request.user)
