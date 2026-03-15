@@ -93,7 +93,7 @@ def dashboard(request):
     # Show only non-draft orders; draft is the cart.
     base_qs = request.user.order_set.exclude(status="draft")
 
-    period = (request.GET.get("period") or "365").strip()
+    period = (request.GET.get("period") or "90").strip()
     top_scope = (request.GET.get("top_scope") or "mine").strip()  # mine | all
     top_by = (request.GET.get("top_by") or "qty").strip()  # qty | sum
 
@@ -117,7 +117,7 @@ def dashboard(request):
         "all": ("Весь час", None),
     }
     if period not in period_options:
-        period = "90"
+        period = "365"
     period_label, since_dt = period_options[period]
 
     period_qs = base_qs
