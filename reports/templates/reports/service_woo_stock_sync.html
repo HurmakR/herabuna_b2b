@@ -1,0 +1,115 @@
+{% extends 'b2b/base.html' %}
+
+{% block title %}B2B → Woo Наявність — Сервіс{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+  <div>
+    <h1 class="h4 mb-1">B2B → Woo Наявність</h1>
+    <div class="text-muted small">
+      Показує Woo товари, які все ще <strong>в наявності</strong> на WooCommerce, але <strong>відсутні/0</strong> у B2B.
+      Можна масово позначити їх <code>outofstock</code> на Woo.
+    </div>
+  </div>
+</div>
+
+{% if error %}
+  <div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<div class="card shadow-sm mb-3">
+  <div class="card-body">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-12 col-md-4">
+        <label class="form-label">Пошук (SKU/назва)</label>
+        <input type="text" class="form-control" name="q" value="{{ q }}" placeholder="Напр. 1148 або назва">
+      </div>
+      <div class="col-12 col-md-2">
+        <button class="btn btn-primary w-100">Оновити</button>
+      </div>
+      <div class="col-12 col-md-6 text-muted small">
+        Знайдено: <strong>{{ items|length }}</strong>
+        &nbsp;•&nbsp; Missing locally: <strong>{{ missing_count }}</strong>
+        &nbsp;•&nbsp; Stock=0 locally: <strong>{{ zero_count }}</strong>
+      </div>
+    </form>
+  </div>
+</div>
+
+<form method="post" action="{% url 'reports:service_woo_stock_sync_apply' %}">
+  {% csrf_token %}
+
+  <div class="d-flex flex-wrap gap-2 mb-2">
+    <button class="btn btn-sm btn-danger" type="submit" {% if not items %}disabled{% endif %}>
+      Позначити Out of stock на Woo
+    </button>
+    <div class="text-muted small align-self-center">
+      Дія застосовується до вибраних позицій. Для variable товарів може знадобитись ручна перевірка.
+    </div>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:32px;"><input type="checkbox" id="checkAll"></th>
+            <th style="width:64px;">Фото</th>
+            <th>SKU</th>
+            <th>Назва</th>
+            <th>B2B</th>
+            <th>Woo</th>
+            <th class="text-end">Woo ID</th>
+            <th>Type</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for it in items %}
+          <tr>
+            <td><input type="checkbox" name="woo_ids" value="{{ it.woo_id }}" class="row-check"></td>
+            <td>
+              {% if it.image_url %}
+                <img src="{{ it.image_url }}" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:8px;">
+              {% else %}
+                <div class="bg-light border rounded" style="width:56px;height:56px;"></div>
+              {% endif %}
+            </td>
+            <td><code>{{ it.sku }}</code></td>
+            <td>{{ it.name }}</td>
+            <td>
+              {% if it.local_stock_qty is None %}
+                <span class="badge bg-warning text-dark">нема в каталозі</span>
+              {% else %}
+                <span class="badge bg-secondary">stock={{ it.local_stock_qty }}</span>
+              {% endif %}
+            </td>
+            <td>
+              <span class="badge bg-success">{{ it.woo_stock_status }}</span>
+              {% if it.woo_stock_qty is not None %}
+                <span class="text-muted small ms-1">qty={{ it.woo_stock_qty }}</span>
+              {% endif %}
+            </td>
+            <td class="text-end">{{ it.woo_id }}</td>
+            <td><span class="text-muted small">{{ it.product_type }}</span></td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="8" class="text-muted text-center py-4">Немає розбіжностей за поточними фільтрами.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</form>
+
+<script>
+  (function(){
+    const all = document.getElementById('checkAll');
+    if(!all) return;
+    all.addEventListener('change', function(){
+      document.querySelectorAll('.row-check').forEach(cb => cb.checked = all.checked);
+    });
+  })();
+</script>
+{% endblock %}
