@@ -1,14 +1,13 @@
 {% extends 'b2b/base.html' %}
 
-{% block title %}B2B → Woo Наявність — Сервіс{% endblock %}
+{% block title %}B2B ↔ Woo Наявність — Сервіс{% endblock %}
 
 {% block content %}
 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
   <div>
-    <h1 class="h4 mb-1">B2B → Woo Наявність</h1>
+    <h1 class="h4 mb-1">B2B ↔ Woo Наявність</h1>
     <div class="text-muted small">
-      Показує Woo товари, які все ще <strong>в наявності</strong> на WooCommerce, але <strong>відсутні/0</strong> у B2B.
-      Можна масово позначити їх <code>outofstock</code> на Woo.
+      Перевіряє розбіжності по SKU між B2B та WooCommerce і дозволяє масово оновлювати <code>stock_status</code> на Woo.
     </div>
   </div>
 </div>
@@ -20,17 +19,39 @@
 <div class="card shadow-sm mb-3">
   <div class="card-body">
     <form method="get" class="row g-2 align-items-end">
-      <div class="col-12 col-md-4">
+      <div class="col-12 col-md-5">
+        <label class="form-label">Режим</label>
+        <div class="btn-group w-100" role="group">
+          <a class="btn btn-outline-secondary {% if mode != 'local_instock_woo_out' %}active{% endif %}"
+             href="?mode=woo_instock_local_missing&q={{ q|urlencode }}">
+            Woo в наявності → B2B нема/0
+          </a>
+          <a class="btn btn-outline-secondary {% if mode == 'local_instock_woo_out' %}active{% endif %}"
+             href="?mode=local_instock_woo_out&q={{ q|urlencode }}">
+            B2B в наявності → Woo нема
+          </a>
+        </div>
+      </div>
+
+      <div class="col-12 col-md-3">
         <label class="form-label">Пошук (SKU/назва)</label>
         <input type="text" class="form-control" name="q" value="{{ q }}" placeholder="Напр. 1148 або назва">
+        <input type="hidden" name="mode" value="{{ mode }}">
       </div>
+
       <div class="col-12 col-md-2">
         <button class="btn btn-primary w-100">Оновити</button>
       </div>
-      <div class="col-12 col-md-6 text-muted small">
-        Знайдено: <strong>{{ items|length }}</strong>
-        &nbsp;•&nbsp; Missing locally: <strong>{{ missing_count }}</strong>
-        &nbsp;•&nbsp; Stock=0 locally: <strong>{{ zero_count }}</strong>
+
+      <div class="col-12 col-md-2 text-muted small">
+        Знайдено: <strong>{{ items|length }}</strong><br>
+        {% if mode == 'local_instock_woo_out' %}
+          Нема на Woo: <strong>{{ missing_count }}</strong><br>
+          Woo outofstock: <strong>{{ zero_count }}</strong>
+        {% else %}
+          Нема в B2B: <strong>{{ missing_count }}</strong><br>
+          B2B stock=0: <strong>{{ zero_count }}</strong>
+        {% endif %}
       </div>
     </form>
   </div>
@@ -38,14 +59,26 @@
 
 <form method="post" action="{% url 'reports:service_woo_stock_sync_apply' %}">
   {% csrf_token %}
+  <input type="hidden" name="mode" value="{{ mode }}">
 
   <div class="d-flex flex-wrap gap-2 mb-2">
-    <button class="btn btn-sm btn-danger" type="submit" {% if not items %}disabled{% endif %}>
-      Позначити Out of stock на Woo
-    </button>
-    <div class="text-muted small align-self-center">
-      Дія застосовується до вибраних позицій. Для variable товарів може знадобитись ручна перевірка.
-    </div>
+    {% if mode == 'local_instock_woo_out' %}
+      <input type="hidden" name="action" value="instock">
+      <button class="btn btn-sm btn-success" type="submit" {% if not items %}disabled{% endif %}>
+        Позначити In stock на Woo
+      </button>
+      <div class="text-muted small align-self-center">
+        Для <code>manage_stock</code> буде встановлено <code>stock_quantity</code> з B2B (мінімум 1).
+      </div>
+    {% else %}
+      <input type="hidden" name="action" value="outofstock">
+      <button class="btn btn-sm btn-danger" type="submit" {% if not items %}disabled{% endif %}>
+        Позначити Out of stock на Woo
+      </button>
+      <div class="text-muted small align-self-center">
+        Дія застосовується до вибраних позицій. Для variable товарів може знадобитись ручна перевірка.
+      </div>
+    {% endif %}
   </div>
 
   <div class="card shadow-sm">
@@ -66,7 +99,10 @@
         <tbody>
           {% for it in items %}
           <tr>
-            <td><input type="checkbox" name="woo_ids" value="{{ it.woo_id }}" class="row-check"></td>
+            <td>
+              <input type="checkbox" name="woo_ids" value="{{ it.woo_id }}" class="row-check"
+                     {% if it.woo_id|default:0|add:0 <= 0 %}disabled title="Товар відсутній на Woo (по SKU)"{% endif %}>
+            </td>
             <td>
               {% if it.image_url %}
                 <img src="{{ it.image_url }}" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:8px;">
@@ -76,20 +112,37 @@
             </td>
             <td><code>{{ it.sku }}</code></td>
             <td>{{ it.name }}</td>
+
             <td>
               {% if it.local_stock_qty is None %}
                 <span class="badge bg-warning text-dark">нема в каталозі</span>
               {% else %}
-                <span class="badge bg-secondary">stock={{ it.local_stock_qty }}</span>
+                {% if it.local_stock_qty|add:0 > 0 %}
+                  <span class="badge bg-success">stock={{ it.local_stock_qty }}</span>
+                {% else %}
+                  <span class="badge bg-secondary">stock={{ it.local_stock_qty }}</span>
+                {% endif %}
               {% endif %}
             </td>
+
             <td>
-              <span class="badge bg-success">{{ it.woo_stock_status }}</span>
-              {% if it.woo_stock_qty is not None %}
-                <span class="text-muted small ms-1">qty={{ it.woo_stock_qty }}</span>
+              {% if it.woo_stock_status == 'missing' %}
+                <span class="badge bg-warning text-dark">нема на Woo</span>
+              {% else %}
+                {% if it.woo_stock_status|lower == 'outofstock' %}
+                  <span class="badge bg-danger">outofstock</span>
+                {% else %}
+                  <span class="badge bg-success">{{ it.woo_stock_status }}</span>
+                {% endif %}
+                {% if it.woo_stock_qty is not None %}
+                  <span class="text-muted small ms-1">qty={{ it.woo_stock_qty }}</span>
+                {% endif %}
               {% endif %}
             </td>
-            <td class="text-end">{{ it.woo_id }}</td>
+
+            <td class="text-end">
+              {% if it.woo_id|default:0|add:0 > 0 %}{{ it.woo_id }}{% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
             <td><span class="text-muted small">{{ it.product_type }}</span></td>
           </tr>
           {% empty %}
@@ -108,7 +161,7 @@
     const all = document.getElementById('checkAll');
     if(!all) return;
     all.addEventListener('change', function(){
-      document.querySelectorAll('.row-check').forEach(cb => cb.checked = all.checked);
+      document.querySelectorAll('.row-check').forEach(cb => { if(!cb.disabled) cb.checked = all.checked; });
     });
   })();
 </script>

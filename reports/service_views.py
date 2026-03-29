@@ -9,6 +9,7 @@ from django.core.management import call_command
 from django.db import transaction
 from django.http import HttpResponse, HttpResponseBadRequest
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
 from .forms import ConfirmActionForm, ImportBackupForm
@@ -353,25 +354,48 @@ def service_marketplace_orders_apply(request):
     return redirect("reports:service_marketplace_orders")
 
 
-@user_passes_test(_is_superuser)
-@require_GET
 def service_woo_stock_sync(request):
-    """Show Woo products that are in-stock on Woo but missing/zero-stock locally."""
-    from b2b.services.woo_stock_push import list_woo_instock_but_missing_locally
+    """
+    Stock mismatches between B2B and Woo.
 
+    mode=woo_instock_local_missing (default):
+      Woo is in-stock, but local product is missing/zero -> propose outofstock on Woo.
+    mode=local_instock_woo_out:
+      Local product is in-stock, but Woo is outofstock -> propose instock on Woo.
+    """
+    from b2b.services.woo_stock_push import (
+        list_local_instock_but_woo_outofstock,
+        list_woo_instock_but_missing_locally,
+    )
+
+    mode = (request.GET.get("mode") or "woo_instock_local_missing").strip()
     q = (request.GET.get("q") or "").strip().lower()
+
     error = ""
     items = []
+
     try:
-        items = list_woo_instock_but_missing_locally()
+        if mode == "local_instock_woo_out":
+            items = list_local_instock_but_woo_outofstock()
+        else:
+            mode = "woo_instock_local_missing"
+            items = list_woo_instock_but_missing_locally()
+
         if q:
             items = [it for it in items if q in (it.sku or "").lower() or q in (it.name or "").lower()]
     except Exception as e:
         error = str(e)
         items = []
 
-    missing_count = sum(1 for it in items if it.local_stock_qty is None)
-    zero_count = sum(1 for it in items if (it.local_stock_qty is not None and int(it.local_stock_qty) <= 0))
+    # Counts for UI
+    if mode == "local_instock_woo_out":
+        missing_on_woo = sum(1 for it in items if int(it.woo_id or 0) <= 0)
+        woo_out_count = sum(1 for it in items if int(it.woo_id or 0) > 0)
+        missing_count = missing_on_woo
+        zero_count = woo_out_count  # reuse slot to show "woo outofstock"
+    else:
+        missing_count = sum(1 for it in items if it.local_stock_qty is None)
+        zero_count = sum(1 for it in items if (it.local_stock_qty is not None and int(it.local_stock_qty) <= 0))
 
     return render(
         request,
@@ -382,6 +406,7 @@ def service_woo_stock_sync(request):
             "error": error,
             "missing_count": missing_count,
             "zero_count": zero_count,
+            "mode": mode,
         },
     )
 
@@ -389,24 +414,45 @@ def service_woo_stock_sync(request):
 @user_passes_test(_is_superuser)
 @require_POST
 def service_woo_stock_sync_apply(request):
-    """Bulk mark selected Woo products as out-of-stock."""
+    """
+    Bulk push stock status to Woo for selected items.
+
+    action:
+      - outofstock
+      - instock
+    """
     from b2b.services.woo_stock_push import WooStockClient
 
+    mode = (request.POST.get("mode") or "woo_instock_local_missing").strip()
+    action = (request.POST.get("action") or "").strip()
+
+    if not action:
+        action = "instock" if mode == "local_instock_woo_out" else "outofstock"
+
     woo_ids = _parse_int_list(request.POST.getlist("woo_ids"))
+    woo_ids = [i for i in woo_ids if int(i) > 0]  # skip "missing on Woo"
+
     if not woo_ids:
-        messages.warning(request, "Не вибрано жодної позиції.")
+        messages.warning(request, "Не вибрано жодної позиції (або позиції відсутні на Woo).")
         return redirect("reports:service_woo_stock_sync")
 
     client = WooStockClient()
     try:
-        res = client.mark_out_of_stock(woo_ids=woo_ids)
-        if res.updated:
-            messages.success(request, f"Woo: позначено outofstock — {res.updated} шт.")
+        if action == "instock":
+            res = client.mark_in_stock(woo_ids=woo_ids)
+            if res.updated:
+                messages.success(request, f"Woo: позначено instock — {res.updated} шт.")
+        else:
+            res = client.mark_out_of_stock(woo_ids=woo_ids)
+            if res.updated:
+                messages.success(request, f"Woo: позначено outofstock — {res.updated} шт.")
+
         if res.skipped:
             messages.warning(request, f"Пропущено — {res.skipped} шт.")
         for e in (res.errors or [])[:5]:
             messages.warning(request, f"Woo: {e}")
+
     except Exception as e:
         messages.error(request, f"Woo stock sync error: {e}")
 
-    return redirect("reports:service_woo_stock_sync")
+    return redirect(f"{reverse('reports:service_woo_stock_sync')}?mode={mode}")
