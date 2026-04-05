@@ -1,0 +1,62 @@
+{% extends 'b2b/base.html' %}
+
+{% block title %}Сервіс · Прайс{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+  <div>
+    <h1 class="h4 mb-1">Прайс (XLS)</h1>
+    <div class="text-muted small">Вивантаження прайсу з B2B з групуванням по брендах та сортуванням по SKU.</div>
+  </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+  <div class="card-body">
+    <form method="post" action="{% url 'reports:service_price_export' %}" class="row g-3">
+      {% csrf_token %}
+
+      <div class="col-12 col-lg-4">
+        <label class="form-label">Товари</label>
+        <div class="btn-group w-100" role="group" aria-label="scope">
+          <input type="radio" class="btn-check" name="scope" id="scope_in" value="in_stock" {% if scope != 'all' %}checked{% endif %}>
+          <label class="btn btn-outline-secondary" for="scope_in">Тільки в наявності</label>
+
+          <input type="radio" class="btn-check" name="scope" id="scope_all" value="all" {% if scope == 'all' %}checked{% endif %}>
+          <label class="btn btn-outline-secondary" for="scope_all">Всі</label>
+        </div>
+        <div class="text-muted small mt-1">Всього: <strong>{{ total_count }}</strong>, в наявності: <strong>{{ in_stock_count }}</strong></div>
+      </div>
+
+      <div class="col-12 col-lg-3">
+        <label class="form-label">Показувати кількість</label>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="show_qty" id="show_qty" value="1" {% if show_qty == '1' %}checked{% endif %}>
+          <label class="form-check-label" for="show_qty">Додати колонку "К-сть"</label>
+        </div>
+        <div class="text-muted small mt-1">Кількість береться з B2B (stock_qty).</div>
+      </div>
+
+      <div class="col-12 col-lg-5">
+        <label class="form-label">Бренди</label>
+        <select class="form-select" name="brand_ids" multiple size="8">
+          {% for b in brands %}
+            <option value="{{ b.id }}" {% if b.id in selected_brand_ids %}selected{% endif %}>{{ b.name }}</option>
+          {% endfor %}
+        </select>
+        <div class="text-muted small mt-1">Якщо не вибрано нічого — буде використано всі бренди.</div>
+      </div>
+
+      <div class="col-12">
+        <button type="submit" class="btn btn-primary">Сформувати та завантажити XLS</button>
+        <a href="{% url 'reports:service_price' %}" class="btn btn-outline-secondary ms-2">Скинути</a>
+      </div>
+
+      <div class="col-12">
+        <div class="alert alert-info mb-0">
+          <strong>Примітка:</strong> у файлі обовʼязково буде колонка з фото. Якщо фото відсутнє або недоступне, буде вставлено плейсхолдер.
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

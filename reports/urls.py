@@ -1,6 +1,7 @@
 from django.urls import path
 from . import views
 from . import service_views
+from .service_price import service_price, service_price_export
 
 app_name = "reports"
 
@@ -19,4 +20,6 @@ urlpatterns = [
     path("service/marketplace/orders/", service_views.service_marketplace_orders, name="service_marketplace_orders"),
     path("service/marketplace/orders/sync/", service_views.service_marketplace_orders_sync, name="service_marketplace_orders_sync"),
     path("service/marketplace/orders/apply/", service_views.service_marketplace_orders_apply, name="service_marketplace_orders_apply"),
+    path("service/price/", service_price, name="service_price"),
+    path("service/price/export/", service_price_export, name="service_price_export"),
 ]

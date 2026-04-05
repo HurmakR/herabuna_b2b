@@ -42,7 +42,7 @@
               <li><a class="dropdown-item" href="{% url 'warehouse:dashboard' %}">Журнал накладних</a></li>
               <li><a class="dropdown-item" href="{% url 'warehouse:receipt_new' %}">Нова накладна</a></li>
               <li><a class="dropdown-item" href="{% url 'warehouse:adjust' %}">Інвентаризація</a></li>
-            </ul>
+			</ul>
           </div>
 
           <div class="nav-item dropdown">
@@ -65,6 +65,7 @@
               <li><a class="dropdown-item" href="{% url 'reports:service_woo_import' %}">Woo → Каталог</a></li>
               <li><a class="dropdown-item" href="{% url 'reports:service_woo_stock_sync' %}">B2B → Woo: Наявність</a></li>
               <li><a class="dropdown-item" href="{% url 'reports:service_marketplace_orders' %}">Marketplace → Замовлення</a></li>
+	          <li><a class="dropdown-item" href="{% url 'reports:service_price' %}">Прайс</a></li>
             </ul>
           </div>
           {% endif %}
