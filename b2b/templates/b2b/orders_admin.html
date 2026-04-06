@@ -51,6 +51,7 @@
       <tr>
         <th>ID</th>
         <th>Клієнт</th>
+        <th>Канал / оплата</th>
         <th>Статус</th>
         <th class="text-end">Сума</th>
         <th>Адреса (НП)</th>
@@ -63,7 +64,17 @@
       {% for o in orders %}
       <tr>
         <td><a href="{% url 'b2b:order_detail' o.id %}">#{{ o.id }}</a></td>
-        <td>{{ o.dealer.username }}</td>
+        <td>
+          <div>{{ o.dealer.username }}</div>
+          {% if o.dealer.company_name %}<small class="text-muted">{{ o.dealer.company_name }}</small>{% endif %}
+        </td>
+        <td>
+          <div class="d-flex flex-wrap gap-1">
+            {% if o.channel and o.channel != 'b2b' %}<span class="badge bg-primary-subtle text-primary-emphasis border">{{ o.marketplace_label|default:o.channel }}</span>{% endif %}
+            {% if o.payment_label %}<span class="badge bg-light text-dark border">{{ o.payment_label }}</span>{% endif %}
+            {% if o.requires_control_payment %}<span class="badge bg-danger">Контроль оплати</span>{% endif %}
+          </div>
+        </td>
         <td>{{ o.get_status_display }}</td>
         <td class="text-end">{{ o.total|floatformat:2 }}</td>
 
@@ -128,7 +139,7 @@
       </tr>
       {% empty %}
       <tr>
-        <td colspan="8" class="text-center text-muted py-4">
+        <td colspan="9" class="text-center text-muted py-4">
           Замовлень немає.
         </td>
       </tr>

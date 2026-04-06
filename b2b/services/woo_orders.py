@@ -33,7 +33,7 @@ class NormalizedOrder:
 
 
 class WooOrdersClient:
-    """WooCommerce orders reader."""
+    """WooCommerce orders reader/writer for order notes only."""
 
     def __init__(self) -> None:
         root = (settings.WOO_BASE_URL or "").rstrip("/")
@@ -58,6 +58,19 @@ class WooOrdersClient:
         r = requests.get(url, params=params, timeout=30)
         r.raise_for_status()
         return r.json(), dict(r.headers)
+
+
+    def _post(self, path: str, data: Dict[str, Any]) -> dict:
+        if not self.api or not self.ck or not self.cs:
+            raise RuntimeError("Woo credentials are not configured")
+        url = f"{self.api}/{path.lstrip('/')}"
+        params = {"consumer_key": self.ck, "consumer_secret": self.cs}
+        r = requests.post(url, json=data, params=params, timeout=30)
+        r.raise_for_status()
+        return r.json() or {}
+
+    def add_order_note(self, order_id: str | int, note: str, *, customer_note: bool = False) -> dict:
+        return self._post(f"orders/{order_id}/notes", {"note": str(note), "customer_note": bool(customer_note)})
 
     def fetch_orders(self, *, days: int = 14) -> List[dict]:
         """Fetch orders within last N days (best-effort)."""

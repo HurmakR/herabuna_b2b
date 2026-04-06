@@ -7,8 +7,8 @@
   <div>
     <h1 class="h4 mb-1">Marketplace → Замовлення</h1>
     <div class="text-muted small">
-      Імпорт замовлень з WooCommerce та Rozetka і автоматичне резервування (списання доступного складу).
-      Якщо товар не замапився на SKU — замовлення показується, але резерв не виконується.
+      Імпорт замовлень з WooCommerce та Rozetka. Ця сторінка потрібна для синку та первинного приймання в обробку.
+      Після приймання замовлення далі ведеться зі сторінки деталей / списку замовлень клієнтів.
     </div>
   </div>
   <div class="d-flex gap-2">
@@ -29,7 +29,7 @@
         <div class="form-check mt-4">
           <input class="form-check-input" type="checkbox" name="auto_apply" value="1" id="auto_apply" checked>
           <label class="form-check-label" for="auto_apply">
-            Автоматично застосувати політику (reserve/release)
+            Автоматично прийняти в обробку (зарезервувати склад)
           </label>
         </div>
       </div>
@@ -47,10 +47,9 @@
   {% csrf_token %}
   <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-2">
     <div class="d-flex gap-2 align-items-center">
-      <select class="form-select form-select-sm" name="action" style="max-width:240px;">
-        <option value="reserve">Reserve (списати доступний склад)</option>
-        <option value="release">Release (повернути резерв)</option>
-        <option value="ship">Ship (списати qty_out)</option>
+      <select class="form-select form-select-sm" name="action" style="max-width:280px;">
+        <option value="accept">Прийняти в обробку (резерв)</option>
+        <option value="reject">Скасувати / звільнити резерв</option>
       </select>
       <button class="btn btn-sm btn-outline-secondary">Застосувати до вибраних</button>
     </div>
@@ -72,6 +71,7 @@
           <th>Статус (канал)</th>
           <th>Дата</th>
           <th>Внутр. статус</th>
+          <th>Оплата</th>
           <th>Резерв</th>
           <th>Проблеми</th>
         </tr>
@@ -109,6 +109,10 @@
             <span class="badge bg-light text-dark border">{{ o.status }}</span>
           </td>
           <td>
+            {% if o.payment_label %}<span class="badge bg-light text-dark border">{{ o.payment_label }}</span>{% endif %}
+            {% if o.requires_control_payment %}<span class="badge bg-danger ms-1">Контроль оплати</span>{% endif %}
+          </td>
+          <td>
             {% if o.reserved_qty|default:0 > 0 %}
               <span class="badge bg-warning text-dark">{{ o.reserved_qty }} шт</span>
             {% else %}
@@ -126,7 +130,7 @@
         </tr>
       {% empty %}
         <tr>
-          <td colspan="8" class="text-muted">Немає даних. Натисни Sync.</td>
+          <td colspan="9" class="text-muted">Немає даних. Натисни Sync.</td>
         </tr>
       {% endfor %}
       </tbody>

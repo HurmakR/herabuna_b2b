@@ -13,6 +13,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
 from .forms import ConfirmActionForm, ImportBackupForm
+from b2b.services.marketplace_meta import enrich_order_ui_meta
 
 
 def _parse_int_list(values):
@@ -258,6 +259,7 @@ def service_marketplace_orders(request):
 
     for o in orders:
         payload = o.external_payload or {}
+        enrich_order_ui_meta(o)
         # Django templates disallow access to attributes starting with underscores.
         # Attach computed values using safe attribute names.
         o.reserved_qty = reserved_map.get(o.id, 0)
@@ -325,7 +327,7 @@ def service_marketplace_orders_apply(request):
     action = (request.POST.get("action") or "").strip().lower()
     order_ids = _parse_int_list(request.POST.getlist("order_ids"))
 
-    if action not in {"reserve", "release", "ship"}:
+    if action not in {"accept", "reject", "reserve", "release", "ship", "cancel"}:
         messages.error(request, "Невідома дія.")
         return redirect("reports:service_marketplace_orders")
 

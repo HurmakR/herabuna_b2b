@@ -2,14 +2,29 @@
 {% block title %}Замовлення #{{ order.id }} — Herabuna B2B{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h2 class="h4 mb-0">Замовлення #{{ order.id }}</h2>
-  <div class="d-flex align-items-center gap-2">
-    <span class="badge text-bg-secondary">{{ order.get_status_display }}</span>
+  <div>
+    <h2 class="h4 mb-1">Замовлення #{{ order.id }}</h2>
+    <div class="d-flex flex-wrap gap-2">
+      <span class="badge text-bg-secondary">{{ order.get_status_display }}</span>
+      {% if order.channel %}<span class="badge bg-primary-subtle text-primary-emphasis border">{{ order.marketplace_label|default:order.channel }}</span>{% endif %}
+      {% if order.payment_label %}<span class="badge bg-light text-dark border">{{ order.payment_label }}</span>{% endif %}
+      {% if order.requires_control_payment %}<span class="badge bg-danger">Контроль оплати</span>{% endif %}
+    </div>
+  </div>
+  <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+    {% if request.user.is_staff and order.status in 'submitted pending_payment' %}{% endif %}
     {% if request.user.is_staff %}
-  {% if order.status == 'submitted' or order.status == 'pending_payment' %}
-    <a class="btn btn-sm btn-outline-primary" href="{% url 'b2b:order_admin_edit_items' order.id %}">Редагувати позиції</a>
-  {% endif %}
-{% endif %}
+      {% if order.status == 'submitted' or order.status == 'pending_payment' %}
+        <a class="btn btn-sm btn-outline-primary" href="{% url 'b2b:order_admin_edit_items' order.id %}">Редагувати позиції</a>
+      {% endif %}
+      {% if order.status == 'submitted' %}
+        <form method="post" action="{% url 'b2b:order_admin_action' order.id 'confirm' %}" class="d-inline">{% csrf_token %}<button class="btn btn-sm btn-success">Підтвердити</button></form>
+        <form method="post" action="{% url 'b2b:order_admin_action' order.id 'cancel' %}" class="d-inline" onsubmit="return confirm('Скасувати замовлення?')">{% csrf_token %}<button class="btn btn-sm btn-outline-danger">Скасувати</button></form>
+      {% elif order.status == 'pending_payment' %}
+        <form method="post" action="{% url 'b2b:order_admin_action' order.id 'ship' %}" class="d-inline">{% csrf_token %}<button class="btn btn-sm btn-primary">Відвантажити</button></form>
+        <form method="post" action="{% url 'b2b:order_admin_action' order.id 'cancel' %}" class="d-inline" onsubmit="return confirm('Скасувати замовлення?')">{% csrf_token %}<button class="btn btn-sm btn-outline-danger">Скасувати</button></form>
+      {% endif %}
+    {% endif %}
   </div>
 </div>
 

@@ -66,23 +66,26 @@ def rereserve_order(order: Order) -> None:
 
 
 def apply_stock_action(*, order: Order, action: str) -> None:
-    """Apply warehouse action for a marketplace order.
+    """Apply marketplace workflow action.
 
-    action:
-      - reserve: FIFO reserve (deducts available stock)
-      - release: cancel + release reservations
-      - ship: consume reserved lots (qty_out)
+    Supported actions:
+      - accept/reserve: put order into processing and reserve stock
+      - reject/release/cancel: release reservations and cancel order
+      - ship: consume reserved lots (rarely used from marketplace service UI)
     """
     action = (action or "").strip().lower()
 
-    if action == "reserve":
+    if action in {"accept", "reserve"}:
         if order.status == "draft":
             order.status = "submitted"
             order.save(update_fields=["status"])
         ensure_order_reserved(order)
+        if order.status != "pending_payment":
+            order.status = "pending_payment"
+            order.save(update_fields=["status"])
         return
 
-    if action == "release":
+    if action in {"reject", "release", "cancel"}:
         cancel_order(order)
         if order.status != "cancelled":
             order.status = "cancelled"

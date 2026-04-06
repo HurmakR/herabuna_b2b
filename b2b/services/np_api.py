@@ -6,6 +6,7 @@ import re
 import base64
 import requests
 from django.conf import settings
+from b2b.services.marketplace_meta import order_requires_control_payment
 
 API_URL = "https://api.novaposhta.ua/v2.0/json/"
 
@@ -228,6 +229,16 @@ def create_ttn(order) -> tuple[str, str]:
         "RecipientsMiddleName": middle,
         "RecipientsLastName": last,
     }
+
+    if order_requires_control_payment(order):
+        props["BackwardDeliveryData"] = [
+            {
+                "PayerType": "Recipient",
+                "CargoType": "Money",
+                "RedeliveryString": cost,
+            }
+        ]
+        props["AfterpaymentOnGoodsCost"] = cost
 
     data = _post("InternetDocument", "save", props)
     doc = data[0] if data else {}

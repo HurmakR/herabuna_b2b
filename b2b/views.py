@@ -6,7 +6,7 @@ from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.db import transaction
 from django.db.models import Q
-from django.http import HttpResponse, HttpResponseForbidden
+from django.http import HttpResponse, HttpResponseForbidden, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
@@ -34,6 +34,7 @@ from .forms import (
 )
 from .models import Brand, Category, Order, OrderItem, Product, ProductVariant, Address, Dealer
 from .services import woo_sync, np_api, telegram as tg
+from .services.marketplace_meta import enrich_order_ui_meta
 
 
 def _safe_next_url(request, default_name="b2b:product_list"):
@@ -601,6 +602,8 @@ def order_detail(request, order_id):
     except Exception:
         order_weight_kg = None
 
+    enrich_order_ui_meta(order)
+
     return render(
         request,
         "b2b/order_detail.html",
@@ -655,8 +658,12 @@ def orders_admin(request):
 
     dealers = Dealer.objects.filter(is_dealer=True).order_by("username")
 
+    orders = list(qs)
+    for o in orders:
+        enrich_order_ui_meta(o)
+
     context = {
-        "orders": qs,
+        "orders": orders,
         "status": status,
         "dealer_id": dealer_id,
         "dealers": dealers,
