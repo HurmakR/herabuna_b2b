@@ -33,7 +33,7 @@ class NormalizedOrder:
 
 
 class WooOrdersClient:
-    """WooCommerce orders reader/writer for order notes only."""
+    """WooCommerce orders reader/writer."""
 
     def __init__(self) -> None:
         root = (settings.WOO_BASE_URL or "").rstrip("/")
@@ -69,8 +69,40 @@ class WooOrdersClient:
         r.raise_for_status()
         return r.json() or {}
 
+    def _put(self, path: str, data: Dict[str, Any]) -> dict:
+        if not self.api or not self.ck or not self.cs:
+            raise RuntimeError("Woo credentials are not configured")
+        url = f"{self.api}/{path.lstrip('/')}"
+        params = {"consumer_key": self.ck, "consumer_secret": self.cs}
+        r = requests.put(url, json=data, params=params, timeout=30)
+        r.raise_for_status()
+        return r.json() or {}
+
     def add_order_note(self, order_id: str | int, note: str, *, customer_note: bool = False) -> dict:
         return self._post(f"orders/{order_id}/notes", {"note": str(note), "customer_note": bool(customer_note)})
+
+    def update_order(self, order_id: str | int, data: Dict[str, Any]) -> dict:
+        return self._put(f"orders/{order_id}", data)
+
+    def push_shipment(self, order_id: str | int, *, ttn: str, np_ref: str = "", status: str = "completed") -> dict:
+        payload: Dict[str, Any] = {
+            "status": status,
+            "meta_data": [
+                {"key": "mrkv_ua_ship_invoice_number", "value": str(ttn or "")},
+                {"key": "mrkv_ua_ship_invoice_ref", "value": str(np_ref or "")},
+                {"key": "shipping_ttn", "value": str(ttn or "")},
+                {"key": "shipping_np_ref", "value": str(np_ref or "")},
+            ],
+        }
+        data = self.update_order(order_id, payload)
+        note_parts = [f"TTN synced from Herabuna B2B: {ttn}"]
+        if np_ref:
+            note_parts.append(f"NP ref: {np_ref}")
+        try:
+            self.add_order_note(order_id, "; ".join(note_parts), customer_note=False)
+        except Exception:
+            pass
+        return data
 
     def fetch_orders(self, *, days: int = 14) -> List[dict]:
         """Fetch orders within last N days (best-effort)."""

@@ -52,7 +52,14 @@
               {{ f.qty }}
               {% if f.qty.errors %}<div class="text-danger small mt-1">{{ f.qty.errors|striptags }}</div>{% endif %}
             </td>
-            <td class="text-center">{% if f.DELETE %}{{ f.DELETE }}{% endif %}</td>
+            <td class="text-center">
+              {% if f.DELETE %}
+                <label style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;color:var(--crm-red);font-size:12px">
+                  {{ f.DELETE }}
+                  <span>Видалити</span>
+                </label>
+              {% endif %}
+            </td>
           </tr>
           {% endfor %}
         </tbody>
@@ -70,7 +77,14 @@
   <tr class="line-row">
     <td>{{ formset.empty_form.sku }}</td>
     <td class="text-end">{{ formset.empty_form.qty }}</td>
-    <td class="text-center">{% if formset.empty_form.DELETE %}{{ formset.empty_form.DELETE }}{% endif %}</td>
+    <td class="text-center">
+      {% if formset.empty_form.DELETE %}
+        <label style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;color:var(--crm-red);font-size:12px">
+          {{ formset.empty_form.DELETE }}
+          <span>Видалити</span>
+        </label>
+      {% endif %}
+    </td>
   </tr>
 </template>
 

@@ -40,9 +40,7 @@
 
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
       <h2 class="h6 mb-0">Рядки накладної</h2>
-      <div class="d-flex gap-2">
-        <button type="button" class="btn btn-outline-primary btn-sm" id="addRowBtn">+ Додати рядок</button>
-      </div>
+      <button type="button" class="btn btn-outline-primary btn-sm" id="addRowBtn">+ Додати рядок</button>
     </div>
 
     {{ formset.management_form }}
@@ -55,10 +53,11 @@
       <table class="table table-sm align-middle mb-0">
         <thead class="table-light">
           <tr>
-            <th style="min-width: 420px;">Товар (SKU)</th>
-            <th style="width: 140px;" class="text-end">К-сть</th>
-            <th style="width: 180px;" class="text-end">Вхідна ціна</th>
-            <th style="width: 90px;" class="text-center">Del</th>
+            <th style="min-width:280px">Товар (SKU)</th>
+            <th style="min-width:220px">Варіація</th>
+            <th style="width:120px" class="text-end">К-сть</th>
+            <th style="width:150px" class="text-end">Вхідна ціна</th>
+            <th style="width:70px" class="text-center">Del</th>
           </tr>
         </thead>
         <tbody id="linesBody">
@@ -67,6 +66,10 @@
             <td>
               {{ f.product }}
               {% if f.product.errors %}<div class="text-danger small mt-1">{{ f.product.errors|striptags }}</div>{% endif %}
+            </td>
+            <td>
+              {{ f.variant }}
+              {% if f.variant.errors %}<div class="text-danger small mt-1">{{ f.variant.errors|striptags }}</div>{% endif %}
             </td>
             <td class="text-end">
               {{ f.qty }}
@@ -93,6 +96,7 @@
 <template id="emptyRowTemplate">
   <tr class="line-row">
     <td>{{ formset.empty_form.product }}</td>
+    <td>{{ formset.empty_form.variant }}</td>
     <td class="text-end">{{ formset.empty_form.qty }}</td>
     <td class="text-end">{{ formset.empty_form.unit_cost }}</td>
     <td class="text-center">{% if formset.empty_form.DELETE %}{{ formset.empty_form.DELETE }}{% endif %}</td>
@@ -120,7 +124,53 @@
     if (!row) return;
     body.appendChild(row);
     totalForms.value = idx + 1;
+    // bind variant loading for new row
+    const newProdSel = row.querySelector('select[id$="-product"]');
+    if (newProdSel) bindProductSelect(newProdSel);
   });
 })();
+
+function loadVariants(productSelect, selectedVariantId) {
+  const row = productSelect.closest('tr');
+  if (!row) return;
+  const variantSelect = row.querySelector('select[id$="-variant"]');
+  if (!variantSelect) return;
+
+  const productId = productSelect.value;
+  variantSelect.innerHTML = '<option value="">— без варіації —</option>';
+  if (!productId) return;
+
+  fetch('/warehouse/api/variants/?product_id=' + productId)
+    .then(r => r.json())
+    .then(data => {
+      data.forEach(function(v) {
+        const opt = document.createElement('option');
+        opt.value = v.id;
+        opt.textContent = v.label;
+        if (selectedVariantId && String(v.id) === String(selectedVariantId)) {
+          opt.selected = true;
+        }
+        variantSelect.appendChild(opt);
+      });
+    })
+    .catch(function() {});
+}
+
+function bindProductSelect(sel) {
+  if (sel.dataset.variantBound) return;
+  sel.dataset.variantBound = '1';
+  sel.addEventListener('change', function() { loadVariants(sel, null); });
+  if (sel.value) {
+    const row = sel.closest('tr');
+    const vs = row ? row.querySelector('select[id$="-variant"]') : null;
+    loadVariants(sel, vs ? vs.value : null);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('select[id$="-product"]').forEach(function(sel) {
+    bindProductSelect(sel);
+  });
+});
 </script>
 {% endblock %}

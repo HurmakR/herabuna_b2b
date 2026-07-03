@@ -37,6 +37,19 @@ from .services import woo_sync, np_api, telegram as tg
 from .services.marketplace_meta import enrich_order_ui_meta
 
 
+
+def _orders_admin_redirect(request):
+    """Redirect back to orders_admin preserving tab."""
+    from django.urls import reverse
+    tab = request.POST.get("tab") or request.GET.get("tab") or "b2b"
+    active = request.POST.get("active") or request.GET.get("active") or ""
+    url = reverse("b2b:orders_admin")
+    params = f"tab={tab}"
+    if active:
+        params += f"&active={active}"
+    return redirect(f"{url}?{params}")
+
+
 def _safe_next_url(request, default_name="b2b:product_list"):
     """Return a safe redirect target from ?next= or POST; fallback to catalog."""
     nxt = request.POST.get("next") or request.GET.get("next")
@@ -365,18 +378,28 @@ def product_list(request):
 
 @login_required
 def product_detail(request, product_id: int):
-    """Product detail page with variant options and quantity."""
+    """Product detail page with variant table for bulk ordering."""
     p = get_object_or_404(Product, id=product_id, is_active=True)
 
-    # Dealers should not access products without wholesale price.
     if (not request.user.is_authenticated or not request.user.is_staff) and (p.wholesale_price or 0) <= 0:
         raise Http404
-    variant_options = {}
-    for v in p.variants.filter(is_active=True):
-        for k, val in (v.attributes or {}).items():
-            variant_options.setdefault(k, set()).add(val)
-    variant_options = {k: sorted(list(vals)) for k, vals in variant_options.items()}
-    return render(request, "b2b/product_detail.html", {"product": p, "variant_options": variant_options})
+
+    variants = list(p.variants.filter(is_active=True).order_by("id"))
+
+    # Collect ordered attribute names from all variants
+    attr_names = []
+    seen = set()
+    for v in variants:
+        for k in (v.attributes or {}).keys():
+            if k not in seen:
+                attr_names.append(k)
+                seen.add(k)
+
+    return render(request, "b2b/product_detail.html", {
+        "product":    p,
+        "variants":   variants,
+        "attr_names": attr_names,
+    })
 
 
 @login_required
@@ -384,6 +407,12 @@ def product_detail(request, product_id: int):
 def add_to_cart(request, product_id):
     """Add simple product with optional qty; enforce stock; stay on same page."""
     product = get_object_or_404(Product, id=product_id, is_active=True)
+
+    # Variable product — redirect to product page to select variant
+    if product.variants.filter(is_active=True).exists():
+        messages.info(request, "Оберіть варіант товару.")
+        return redirect("b2b:product_detail", product_id=product.id)
+
     if not request.user.is_staff and (product.wholesale_price or 0) <= 0:
         messages.error(request, "Для цього товару не встановлена гуртова ціна.")
         return redirect(_safe_next_url(request))
@@ -417,12 +446,72 @@ def add_to_cart(request, product_id):
 @require_http_methods(["POST"])
 @transaction.atomic
 def add_to_cart_with_attrs(request, product_id: int):
-    """Add concrete variant by attributes; enforce stock; stay on same page."""
+    """Add variant(s) to cart.
+
+    Supports two modes:
+    - bulk=1  : table mode — reads variant_qty_<id> for each variant
+    - (default): single variant by attrs[] fields (legacy, kept for compatibility)
+    """
     product = get_object_or_404(Product, id=product_id, is_active=True)
     if not request.user.is_staff and (product.wholesale_price or 0) <= 0:
         messages.error(request, "Для цього товару не встановлена гуртова ціна.")
         return redirect(_safe_next_url(request))
+
     order, _ = Order.objects.get_or_create(dealer=request.user, status="draft")
+
+    # ── Bulk mode (variant table) ──
+    if request.POST.get("bulk") == "1":
+        added_count = 0
+        skipped = []
+        for key, val in request.POST.items():
+            if not key.startswith("variant_qty_"):
+                continue
+            try:
+                variant_id = int(key.replace("variant_qty_", ""))
+                qty_req = int(val or "0")
+            except (ValueError, TypeError):
+                continue
+            if qty_req <= 0:
+                continue
+
+            try:
+                variant = product.variants.get(id=variant_id, is_active=True)
+            except Exception:
+                continue
+
+            available = max(0, int(variant.stock_qty or 0))
+            if available <= 0:
+                skipped.append(str(variant))
+                continue
+
+            price = variant.wholesale_price
+            if not request.user.is_staff and (price or 0) <= 0:
+                skipped.append(str(variant))
+                continue
+
+            item, _ = OrderItem.objects.get_or_create(
+                order=order, product=product, variant=variant,
+                defaults={"qty": 0, "price": price,
+                          "variant_attrs": variant.attributes or {}},
+            )
+            current = int(item.qty or 0)
+            to_add = min(qty_req, available - current)
+            if to_add > 0:
+                item.qty = current + to_add
+                item.price = price
+                item.save(update_fields=["qty", "price"])
+                added_count += 1
+
+        order.recalc()
+        if added_count:
+            messages.success(request, f"Додано до кошика: {added_count} варіант(ів).")
+        if skipped:
+            messages.warning(request, f"Пропущено (немає в наявності або ціни): {', '.join(skipped)}")
+        if not added_count and not skipped:
+            messages.warning(request, "Вкажіть кількість хоча б для одного варіанту.")
+        return redirect(_safe_next_url(request))
+
+    # ── Single variant mode (legacy) ──
     try:
         qty_req = max(1, int(request.POST.get("qty", "1")))
     except Exception:
@@ -569,8 +658,9 @@ def submit_order(request):
         messages.error(request, f"Помилка резервування: {e}")
         return redirect("b2b:cart")
     order.status = "submitted"
+    order.created_at = timezone.now()  # reset date to actual submission time
     order.recalc()
-    order.save(update_fields=["status", "subtotal", "total"])
+    order.save(update_fields=["status", "subtotal", "total", "created_at"])
     # NOTE: WooCommerce sync is catalog-only in this project.
     # Stock/price are managed exclusively in local warehouse (lots) + manual pricing.
     # Notify admin via email (brief)
@@ -640,25 +730,35 @@ def _np_recipient_ready(order) -> bool:
 
 @user_passes_test(_is_staff)
 def orders_admin(request):
-    """Admin orders list with status + dealer filters."""
-    status = (request.GET.get("status") or "").strip()
-    dealer_id = (request.GET.get("dealer") or "").strip()
+    """Admin orders list with tab (b2b/marketplace/all), status, dealer, active filters."""
+    status    = (request.GET.get("status")    or "").strip()
+    dealer_id = (request.GET.get("dealer")    or "").strip()
+    tab       = (request.GET.get("tab")       or "b2b").strip()   # b2b | marketplace | all
+    active_only = request.GET.get("active") == "1"
 
-    qs = (
-        Order.objects
-        .select_related("dealer")
-        .all()
-        .order_by("-created_at")
-    )
+    qs = Order.objects.select_related("dealer").order_by("-created_at")
 
+    # Tab filter
+    if tab == "b2b":
+        qs = qs.filter(channel="b2b")
+    elif tab == "marketplace":
+        qs = qs.filter(channel__in=["woo", "rozetka"])
+
+    # Status filter
     if status:
         qs = qs.filter(status=status)
+    else:
+        # "active only" checkbox — hide draft and cancelled by default when checked
+        if active_only:
+            qs = qs.filter(status__in=["submitted", "pending_payment", "shipped"])
+
+    # Dealer filter
     if dealer_id:
         qs = qs.filter(dealer_id=dealer_id)
 
     dealers = Dealer.objects.filter(is_dealer=True).order_by("username")
 
-    orders = list(qs)
+    orders = list(qs[:300])
     for o in orders:
         enrich_order_ui_meta(o)
 
@@ -667,6 +767,8 @@ def orders_admin(request):
         "status": status,
         "dealer_id": dealer_id,
         "dealers": dealers,
+        "tab": tab,
+        "active_only": active_only,
     }
     return render(request, "b2b/orders_admin.html", context)
 
@@ -1002,6 +1104,26 @@ def order_admin_edit_items(request, order_id: int):
 
 
 @user_passes_test(_is_staff)
+@login_required
+@user_passes_test(_is_staff)
+def order_admin_edit_ttn(request, order_id: int):
+    """Quick TTN edit for an order — staff only."""
+    order = get_object_or_404(Order, id=order_id)
+
+    if request.method == 'POST':
+        ttn = (request.POST.get('shipping_ttn') or '').strip()
+        order.shipping_ttn = ttn
+        # Mark TTN as manually set so sync won't overwrite it
+        p = order.external_payload or {}
+        p.pop('_synced_ttn', None)
+        order.external_payload = p
+        order.save(update_fields=['shipping_ttn', 'external_payload'])
+        messages.success(request, f'ТТН оновлено: {ttn}' if ttn else 'ТТН очищено.')
+        return redirect('b2b:order_detail', order_id=order.id)
+
+    return render(request, 'b2b/order_admin_edit_ttn.html', {'order': order})
+
+
 def order_admin_edit_shipping(request, order_id: int):
     order = get_object_or_404(Order, id=order_id)
 
@@ -1099,13 +1221,13 @@ def order_admin_action(request, order_id: int, action: str):
     if action == "confirm":
         if order.status != "submitted":
             messages.error(request, "Можна підтвердити лише замовлення у статусі 'Надіслано'.")
-            return redirect("b2b:orders_admin")
+            return _orders_admin_redirect(request)
         # Ensure FIFO reservations exist so stock levels are updated.
         try:
             wh.ensure_order_reserved(order)
         except Exception as e:
             messages.error(request, f"Не вдалося зарезервувати залишки: {e}")
-            return redirect("b2b:orders_admin")
+            return _orders_admin_redirect(request)
         order.status = "pending_payment"
         order.save(update_fields=["status"])
 
@@ -1131,72 +1253,79 @@ def order_admin_action(request, order_id: int, action: str):
         except Exception:
             pass
         messages.success(request, f"Замовлення #{order.id} підтверджено. Статус: очікує оплату.")
-        return redirect("b2b:orders_admin")
+        return _orders_admin_redirect(request)
 
     elif action == "cancel":
         if order.status not in {"submitted", "pending_payment"}:
             messages.error(request, "Скасовувати можна лише 'Надіслано' або 'Очікує оплату'.")
-            return redirect("b2b:orders_admin")
+            return _orders_admin_redirect(request)
 
         # Return lots and sync aggregate stock (FIFO-aware)
         try:
             wh.cancel_order(order)  # puts back reserved lots, updates Product.stock_qty
         except Exception as e:
             messages.error(request, f"Помилка повернення товарів: {e}")
-            return redirect("b2b:orders_admin")
+            return _orders_admin_redirect(request)
 
         # NOTE: WooCommerce sync is catalog-only in this project.
 
         order.status = "cancelled"
         order.save(update_fields=["status"])
         messages.info(request, f"Замовлення #{order.id} скасовано. Товари повернуті на склад.")
-        return redirect("b2b:orders_admin")
+        return _orders_admin_redirect(request)
 
 
     elif action == "ship":
         if order.status != "pending_payment":
             messages.error(request, "Відвантажити можна лише замовлення, що очікує оплату.")
-            return redirect("b2b:orders_admin")
+            return _orders_admin_redirect(request)
 
-        # Validate NP recipient snapshot before creating TTN.
-        if not _np_recipient_ready(order):
-            messages.error(request, 'Заповніть адресу доставки (Нова Пошта) перед відвантаженням.')
-            return redirect('b2b:order_admin_edit_shipping', order_id=order.id)
+        create_ttn_flag = request.POST.get("create_ttn") == "1"
 
-        # Ensure we have valid reservations before generating TTN.
+        # Ensure reservations exist
         try:
             wh.ensure_order_reserved(order)
         except Exception as e:
             messages.error(request, f"Не вдалося зарезервувати залишки: {e}")
-            return redirect("b2b:orders_admin")
+            return _orders_admin_redirect(request)
 
-        # Create TTN first (fail fast if NP rejects)
-        try:
-            ttn, doc_ref = np_api.create_ttn(order)
-        except Exception as e:
-            messages.error(request, f"Помилка створення ТТН: {e}")
-            return redirect("b2b:orders_admin")
+        ttn = ""
+        doc_ref = ""
 
-        # Finalize lot movements (write-off) and sync aggregate stock
+        if create_ttn_flag:
+            # Validate NP address before creating TTN
+            if not _np_recipient_ready(order):
+                messages.error(request, "Заповніть адресу доставки (Нова Пошта) перед формуванням ТТН.")
+                return redirect("b2b:order_admin_edit_shipping", order_id=order.id)
+            try:
+                ttn, doc_ref = np_api.create_ttn(order)
+            except Exception as e:
+                messages.error(request, f"Помилка створення ТТН: {e}")
+                return _orders_admin_redirect(request)
+
+        # Finalize lot movements (write-off)
         try:
-            wh.ship_order(order)  # consumes reserved lots, freezes COGS on items if not yet set
+            wh.ship_order(order)
         except Exception as e:
             messages.error(request, f"Помилка списання партій: {e}")
-            return redirect("b2b:orders_admin")
+            return _orders_admin_redirect(request)
 
         # Persist shipping data and status
-        order.shipping_ttn = ttn
-        order.shipping_np_ref = doc_ref or ""
+        update_fields = ["shipped_at", "status"]
         order.shipped_at = timezone.now()
         order.status = "shipped"
-        order.save(update_fields=["shipping_ttn", "shipping_np_ref", "shipped_at", "status"])
+        if ttn:
+            order.shipping_ttn = ttn
+            order.shipping_np_ref = doc_ref or ""
+            update_fields += ["shipping_ttn", "shipping_np_ref"]
+        order.save(update_fields=update_fields)
 
-        # NOTE: WooCommerce sync is catalog-only in this project.
-
-        # Notify customer about shipment
+        # Notify customer
         try:
             if order.dealer.email:
-                body = f"Ваше замовлення #{order.id} відправлено. ТТН: {order.shipping_ttn}"
+                body = f"Ваше замовлення #{order.id} відправлено."
+                if ttn:
+                    body += f" ТТН: {ttn}"
                 send_mail(
                     subject=f"Замовлення #{order.id} відправлено",
                     message=body,
@@ -1207,8 +1336,13 @@ def order_admin_action(request, order_id: int, action: str):
         except Exception:
             pass
 
-        messages.success(request, f"Замовлення #{order.id} відвантажено. ТТН: {order.shipping_ttn}")
-        return redirect("b2b:orders_admin")
+        msg = f"Замовлення #{order.id} відвантажено."
+        if ttn:
+            msg += f" ТТН: {ttn}"
+        else:
+            msg += " ТТН не формувався — вкажіть вручну або синхронізується з маркетплейсу."
+        messages.success(request, msg)
+        return _orders_admin_redirect(request)
 
 
     else:
@@ -1253,7 +1387,7 @@ def order_set_status(request, order_id, status):
         return HttpResponse("Invalid status", status=400)
     order.status = status
     order.save(update_fields=["status"])
-    return redirect("b2b:orders_admin")
+    return _orders_admin_redirect(request)
 
 
 @require_http_methods(["POST", "GET"])

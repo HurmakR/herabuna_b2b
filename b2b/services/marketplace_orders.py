@@ -12,6 +12,7 @@ from django.utils import timezone
 from b2b.models import Dealer, Order, OrderItem, Product, ProductVariant
 from warehouse.models import InventoryReservation
 from warehouse.services import WarehouseError, cancel_order, ensure_order_reserved, ship_order
+from b2b.services.marketplace_meta import extract_ttn_from_payload
 
 
 @dataclass
@@ -66,12 +67,12 @@ def rereserve_order(order: Order) -> None:
 
 
 def apply_stock_action(*, order: Order, action: str) -> None:
-    """Apply marketplace workflow action.
+    """Apply warehouse action manually (from UI only).
 
     Supported actions:
-      - accept/reserve: put order into processing and reserve stock
-      - reject/release/cancel: release reservations and cancel order
-      - ship: consume reserved lots (rarely used from marketplace service UI)
+      - accept/reserve : reserve stock, move to pending_payment
+      - reject/release/cancel : release stock, cancel order
+      - ship : consume lots, mark shipped
     """
     action = (action or "").strip().lower()
 
@@ -93,6 +94,8 @@ def apply_stock_action(*, order: Order, action: str) -> None:
         return
 
     if action == "ship":
+        if order.status == "shipped":
+            return
         ship_order(order)
         if order.status != "shipped":
             order.status = "shipped"
@@ -101,6 +104,61 @@ def apply_stock_action(*, order: Order, action: str) -> None:
         return
 
     raise ValueError("Unknown action")
+
+
+@transaction.atomic
+def accept_marketplace_order(order: Order) -> None:
+    """Accept a marketplace order into the B2B workflow.
+
+    This is the single entry point for operator action on the service page.
+    After acceptance:
+      - Stock is reserved
+      - Order moves to pending_payment
+      - Order is marked as accepted (external_payload._accepted = True)
+        so it no longer appears in the "new imports" queue.
+
+    Idempotent: calling twice on an already-accepted order is safe.
+    """
+    if order.status != "draft":
+        # Already accepted or processed — idempotently mark and return
+        _mark_accepted(order)
+        return
+
+    ensure_order_reserved(order)
+    order.status = "pending_payment"
+    p = order.external_payload or {}
+    p["_accepted"] = True
+    order.external_payload = p
+    order.save(update_fields=["status", "external_payload"])
+
+
+@transaction.atomic
+def dismiss_marketplace_order(order: Order) -> None:
+    """Dismiss a marketplace order without accepting it into stock.
+
+    Use when the order is cancelled on marketplace side or irrelevant.
+    Marks as cancelled in B2B and hides from the import queue.
+    """
+    if order.status != "draft":
+        raise ValueError(
+            f"Неможливо відхилити замовлення #{order.id}: "
+            f"статус '{order.status}' — вже прийняте в роботу. "
+            f"Для скасування використовуйте основний список замовлень."
+        )
+    # Cancelled draft — no stock reservation needed
+    order.status = "cancelled"
+    p = order.external_payload or {}
+    p["_accepted"] = True
+    order.external_payload = p
+    order.save(update_fields=["status", "external_payload"])
+
+
+def _mark_accepted(order: Order) -> None:
+    p = order.external_payload or {}
+    if not p.get("_accepted"):
+        p["_accepted"] = True
+        order.external_payload = p
+        order.save(update_fields=["external_payload"])
 
 
 @transaction.atomic
@@ -131,7 +189,7 @@ def upsert_external_order(
         external_id=external_id,
         defaults={
             "dealer": dealer,
-            "status": "submitted",
+            "status": "draft",  # stays draft until operator accepts in sync queue
             "note": note or "",
             "external_status": external_status or "",
             "external_created_at": external_created_at,
@@ -139,6 +197,13 @@ def upsert_external_order(
             "created_at": external_created_at or timezone.now(),
         },
     )
+
+    # Freeze: once accepted — skip data update, only track external_status
+    if not created and (order.external_payload or {}).get("_accepted"):
+        if order.external_status != (external_status or ""):
+            order.external_status = external_status or ""
+            order.save(update_fields=["external_status"])
+        return order, False, False, []
 
     # Update metadata
     update_fields: List[str] = []
@@ -192,6 +257,23 @@ def upsert_external_order(
 
         if updated_ship_fields:
             order.save(update_fields=updated_ship_fields)
+
+    # Pull TTN from marketplace payload if not already set manually.
+    # Rule: never overwrite a TTN that was filled in manually (non-empty before this sync).
+    # Exception: if the existing TTN came from a previous sync (stored in payload),
+    # we still allow updating it so stale TTNs don't get stuck.
+    ttn_from_payload = extract_ttn_from_payload(channel, payload)
+    if ttn_from_payload:
+        current_ttn = (order.shipping_ttn or "").strip()
+        prev_ttn_from_sync = str((order.external_payload or {}).get("_synced_ttn") or "").strip()
+        # Update if: no TTN yet, OR current TTN was set by a previous sync (not manually)
+        if not current_ttn or current_ttn == prev_ttn_from_sync:
+            order.shipping_ttn = ttn_from_payload
+            # Remember which TTN came from sync so we can distinguish it from manual edits
+            p = order.external_payload or {}
+            p["_synced_ttn"] = ttn_from_payload
+            order.external_payload = p
+            order.save(update_fields=["shipping_ttn", "external_payload"])
 
     # Normalize item keys and merge duplicates
     wanted: Dict[Tuple[int, int], Dict[str, Any]] = {}
@@ -288,39 +370,4 @@ def upsert_external_order(
     return order, created, items_changed, unmatched
 
 
-def safe_apply_policy(
-    *,
-    order: Order,
-    desired_action: str,
-    result: SyncResult,
-    items_changed: bool = False,
-    skip_if_unmatched: bool = True,
-) -> None:
-    """Apply policy while capturing errors into result."""
-    desired_action = (desired_action or "").strip().lower()
-    if desired_action not in {"reserve", "release", "ship"}:
-        return
-
-    payload = order.external_payload or {}
-    if skip_if_unmatched and payload.get("unmatched_items") and desired_action == "reserve":
-        result.skipped_unmapped += 1
-        return
-
-    try:
-        if desired_action == "reserve" and items_changed and order_has_reservations(order):
-            rereserve_order(order)
-        else:
-            apply_stock_action(order=order, action=desired_action)
-
-        if desired_action == "reserve":
-            result.reserved += 1
-        elif desired_action == "release":
-            result.released += 1
-        elif desired_action == "ship":
-            result.shipped += 1
-    except WarehouseError as e:
-        p = order.external_payload or {}
-        p["sync_error"] = str(e)
-        order.external_payload = p
-        order.save(update_fields=["external_payload"])
-        result.errors.append(f"{order.channel}:{order.external_id}: {e}")
+# safe_apply_policy removed — sync no longer applies stock actions

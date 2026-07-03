@@ -1,0 +1,223 @@
+{% extends "b2b/base.html" %}
+{% block title %}Розсилка — Herabuna CRM{% endblock %}
+{% block breadcrumb %}Маркетинг → Розсилка{% endblock %}
+
+{% block content %}
+<div class="crm-page-header">
+  <div>
+    <h1 class="crm-page-title">Комерційна розсилка</h1>
+    <div class="crm-page-sub">Відправка пропозиції з актуальним прайсом в наявності</div>
+  </div>
+</div>
+
+<form method="post" id="mailingForm">
+  {% csrf_token %}
+  <div style="display:grid;grid-template-columns:1fr 360px;gap:16px;align-items:start">
+
+    <!-- Ліва колонка: налаштування -->
+    <div style="display:flex;flex-direction:column;gap:12px">
+
+      <!-- Бренди -->
+      <div class="card">
+        <div class="card-header">Фільтр по брендах <span style="font-weight:400;font-size:12px;color:var(--crm-muted)">(порожньо = всі)</span></div>
+        <div class="card-body" style="display:flex;flex-wrap:wrap;gap:6px">
+          {% for brand in brands %}
+          <label class="brand-chip" style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;
+                        background:var(--crm-bg);border:1px solid var(--crm-border);
+                        border-radius:20px;padding:5px 12px;font-size:13px;transition:all .1s">
+            <input type="checkbox" name="brands" value="{{ brand.id }}" class="brand-cb" style="width:13px;height:13px">
+            {{ brand.name }}
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Опції -->
+      <div class="card">
+        <div class="card-header">Опції листа</div>
+        <div class="card-body" style="display:flex;flex-direction:column;gap:14px">
+
+          <!-- Перемикач наявності -->
+          <div>
+            <div class="crm-filter-label" style="margin-bottom:8px">Товари в листі</div>
+            <div style="display:flex;gap:2px;background:var(--crm-bg);border-radius:var(--radius-md);padding:3px;width:fit-content">
+              <label style="padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;
+                            transition:background .1s" id="chip_in_stock">
+                <input type="radio" name="stock_filter" value="in_stock" checked
+                       style="display:none" class="stock-radio">
+                ✓ В наявності
+              </label>
+              <label style="padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;
+                            transition:background .1s" id="chip_all">
+                <input type="radio" name="stock_filter" value="all"
+                       style="display:none" class="stock-radio">
+                Всі товари
+              </label>
+              <label style="padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;
+                            transition:background .1s" id="chip_out_stock">
+                <input type="radio" name="stock_filter" value="out_stock"
+                       style="display:none" class="stock-radio">
+                Очікуються
+              </label>
+            </div>
+          </div>
+
+          <!-- Ціна -->
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+            <input type="checkbox" name="show_price" value="1" style="width:15px;height:15px">
+            Показувати <strong>оптову ціну</strong> в прайсі
+          </label>
+
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Права колонка: отримувачі -->
+    <div class="card" style="position:sticky;top:72px">
+      <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
+        <span>✉️ Отримувачі</span>
+        <span id="recipientCount" style="font-size:11px;color:var(--crm-muted)">0 адрес</span>
+      </div>
+      <div class="card-body" style="padding:12px">
+
+        <div id="emailList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
+          <div class="email-row" style="display:flex;gap:6px;align-items:center">
+            <div style="flex:1;position:relative">
+              <input type="text" name="emails" placeholder="email@example.com"
+                     class="form-control form-control-sm email-input" autocomplete="off">
+              <div class="email-status" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:13px"></div>
+            </div>
+            <button type="button" class="remove-email"
+                    style="border:none;background:transparent;color:var(--crm-muted);font-size:18px;cursor:pointer;padding:0 4px;line-height:1;display:none">×</button>
+          </div>
+        </div>
+
+        <button type="button" id="addEmail" class="btn-crm w-100" style="font-size:12px;justify-content:center;margin-bottom:12px">
+          + Додати ще email
+        </button>
+
+        <div style="border-top:1px solid var(--crm-border);padding-top:12px">
+          <button type="submit" class="btn-crm-primary w-100" style="justify-content:center;font-size:14px;padding:10px">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M14 2L2 7l5 2 2 5 5-12z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+            </svg>
+            Відправити
+          </button>
+          <div style="font-size:11px;color:var(--crm-muted);margin-top:8px;text-align:center">
+            Лист з прайсом буде відправлений на всі вказані адреси
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</form>
+
+<script>
+// Stock filter toggle
+function updateStockChips() {
+  document.querySelectorAll('.stock-radio').forEach(r => {
+    const label = r.closest('label');
+    if (r.checked) {
+      label.style.background = 'var(--crm-surface)';
+      label.style.fontWeight = '500';
+      label.style.color = 'var(--crm-text)';
+      label.style.border = '1px solid var(--crm-border)';
+      label.style.borderRadius = '6px';
+    } else {
+      label.style.background = '';
+      label.style.fontWeight = '';
+      label.style.color = 'var(--crm-muted)';
+      label.style.border = '';
+    }
+  });
+}
+document.querySelectorAll('.stock-radio').forEach(r => {
+  r.addEventListener('change', updateStockChips);
+});
+updateStockChips();
+
+// Brand chip toggle
+document.querySelectorAll('.brand-cb').forEach(cb => {
+  cb.addEventListener('change', () => {
+    const chip = cb.closest('.brand-chip');
+    if (cb.checked) {
+      chip.style.background = 'var(--crm-blue-bg)';
+      chip.style.borderColor = 'rgba(24,95,165,.35)';
+      chip.style.color = 'var(--crm-blue)';
+    } else {
+      chip.style.background = 'var(--crm-bg)';
+      chip.style.borderColor = 'var(--crm-border)';
+      chip.style.color = '';
+    }
+  });
+});
+
+// Email validation
+let vTimer = null;
+function attachValidation(input) {
+  const status = input.parentElement.querySelector('.email-status');
+  input.addEventListener('input', () => {
+    clearTimeout(vTimer);
+    status.textContent = '';
+    updateCount();
+    const val = input.value.trim();
+    if (!val.includes('@')) return;
+    status.textContent = '⏳';
+    vTimer = setTimeout(() => {
+      fetch(`/reports/marketing/validate-email/?email=${encodeURIComponent(val)}`)
+        .then(r => r.json())
+        .then(d => {
+          status.textContent = d.valid ? '✓' : '✗';
+          status.style.color  = d.valid ? '#639922' : '#E24B4A';
+          input.title = d.valid ? '' : (d.reason || '');
+        })
+        .catch(() => { status.textContent = ''; });
+    }, 700);
+  });
+}
+
+function updateCount() {
+  const n = document.querySelectorAll('.email-input').length;
+  document.getElementById('recipientCount').textContent = `${n} адрес`;
+}
+
+function syncRemoveButtons() {
+  const rows = document.querySelectorAll('.email-row');
+  rows.forEach(r => r.querySelector('.remove-email').style.display = rows.length > 1 ? '' : 'none');
+}
+
+document.getElementById('addEmail').addEventListener('click', () => {
+  const list = document.getElementById('emailList');
+  const row = document.createElement('div');
+  row.className = 'email-row';
+  row.style.cssText = 'display:flex;gap:6px;align-items:center';
+  row.innerHTML = `
+    <div style="flex:1;position:relative">
+      <input type="text" name="emails" placeholder="email@example.com"
+             class="form-control form-control-sm email-input" autocomplete="off">
+      <div class="email-status" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:13px"></div>
+    </div>
+    <button type="button" class="remove-email"
+            style="border:none;background:transparent;color:var(--crm-muted);font-size:18px;cursor:pointer;padding:0 4px;line-height:1">×</button>`;
+  list.appendChild(row);
+  attachValidation(row.querySelector('.email-input'));
+  row.querySelector('.email-input').focus();
+  updateCount();
+  syncRemoveButtons();
+});
+
+document.getElementById('emailList').addEventListener('click', e => {
+  if (e.target.classList.contains('remove-email')) {
+    e.target.closest('.email-row').remove();
+    updateCount();
+    syncRemoveButtons();
+  }
+});
+
+attachValidation(document.querySelector('.email-input'));
+updateCount();
+</script>
+{% endblock %}

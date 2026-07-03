@@ -68,6 +68,17 @@ def _split_name(full_name: str):
     return (parts[0], " ".join(parts[1:-1]), parts[-1])
 
 
+def _resolve_sender_phone(order) -> str:
+    """Resolve sender phone for Nova Poshta shipment creation."""
+    configured = _normalize_phone(getattr(settings, "NP_SENDER_PHONE", "") or "")
+    if configured:
+        return configured
+    dealer_phone = _normalize_phone(getattr(getattr(order, "dealer", None), "phone", "") or "")
+    if dealer_phone:
+        return dealer_phone
+    return ""
+
+
 # ------------------------------- Weight calculation -------------------------------
 
 def _compute_order_weight_kg(order) -> float:
@@ -90,6 +101,17 @@ def _compute_order_weight_kg(order) -> float:
         kg = 0.1  # NP requires positive weight; use minimum 0.1 kg
     # Keep one decimal place
     kg = round(kg + 1e-9, 1)
+    return kg
+
+
+def _compute_ttn_weight_kg(order) -> float:
+    """Same as _compute_order_weight_kg but capped at 29 kg for NP TTN creation.
+    NP rejects single-seat shipments over 30 kg.
+    Use this ONLY when creating a TTN — never for UI display.
+    """
+    kg = _compute_order_weight_kg(order)
+    if kg > 30:
+        kg = 29.0
     return kg
 
 
@@ -193,7 +215,7 @@ def create_ttn(order) -> tuple[str, str]:
     contact_ref = _ensure_contact(recip_ref, first, middle, last, phone)
 
     # Weight and declared cost
-    weight = _compute_order_weight_kg(order)
+    weight = _compute_ttn_weight_kg(order)  # capped at 29 kg for NP
     cost = str(order.total)
 
     # Prepare InternetDocument.save properties
@@ -213,7 +235,7 @@ def create_ttn(order) -> tuple[str, str]:
         "Sender": sender_ref,
         "SenderAddress": sender_wh_ref,
         "ContactSender": sender_contact_ref,
-        "SendersPhone": getattr(order.dealer, "phone", "") or "",
+        "SendersPhone": _resolve_sender_phone(order),
 
         "CityRecipient": order.shipping_city_ref,
         "RecipientAddress": order.shipping_warehouse_ref,
@@ -231,13 +253,8 @@ def create_ttn(order) -> tuple[str, str]:
     }
 
     if order_requires_control_payment(order):
-        props["BackwardDeliveryData"] = [
-            {
-                "PayerType": "Recipient",
-                "CargoType": "Money",
-                "RedeliveryString": cost,
-            }
-        ]
+        # Keep this as a regular shipment with payment control amount only.
+        # Do not enable money transfer / backward delivery here.
         props["AfterpaymentOnGoodsCost"] = cost
 
     data = _post("InternetDocument", "save", props)

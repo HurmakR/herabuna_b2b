@@ -78,25 +78,27 @@ def receive_lot(
     return lot
 
 
-def _iter_fifo_lots(product: Product) -> Iterable[InventoryLot]:
-    return (
-        InventoryLot.objects.filter(product=product)
-        .order_by("received_at", "id")
-        .select_for_update()
-    )
+def _iter_fifo_lots(product: Product, variant=None) -> Iterable[InventoryLot]:
+    qs = InventoryLot.objects.filter(product=product)
+    if variant is not None:
+        qs = qs.filter(variant=variant)
+    else:
+        qs = qs.filter(variant__isnull=True)
+    return qs.order_by("received_at", "id").select_for_update()
 
 
-def _iter_lifo_lots(product: Product) -> Iterable[InventoryLot]:
+def _iter_lifo_lots(product: Product, variant=None) -> Iterable[InventoryLot]:
     """Newest lots first.
 
     Used for inventory corrections where it's usually preferable to adjust the most
     recent receipt rather than rewriting history across all old lots.
     """
-    return (
-        InventoryLot.objects.filter(product=product)
-        .order_by("-received_at", "-id")
-        .select_for_update()
-    )
+    qs = InventoryLot.objects.filter(product=product)
+    if variant is not None:
+        qs = qs.filter(variant=variant)
+    else:
+        qs = qs.filter(variant__isnull=True)
+    return qs.order_by("-received_at", "-id").select_for_update()
 
 
 def _release_existing_reservations(*, order: Order, reason: str) -> set[int]:
@@ -192,6 +194,7 @@ def ensure_order_reserved(order: Order) -> None:
 
 def _reserve_order_item(item: OrderItem) -> set[int]:
     product = item.product
+    variant = item.variant if item.variant_id else None
     qty_need = int(item.qty or 0)
     if qty_need <= 0:
         return set()
@@ -199,7 +202,7 @@ def _reserve_order_item(item: OrderItem) -> set[int]:
     reserved_total = 0
     touched: set[int] = {product.id}
 
-    for lot in _iter_fifo_lots(product):
+    for lot in _iter_fifo_lots(product, variant=variant):
         if reserved_total >= qty_need:
             break
 

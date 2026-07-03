@@ -1,0 +1,67 @@
+{% extends "b2b/base.html" %}
+{% block title %}Запити на активацію{% endblock %}
+{% block breadcrumb %}Адміністрування → Активація{% endblock %}
+
+{% block content %}
+<div class="crm-page-header">
+  <div>
+    <h1 class="crm-page-title">Запити на активацію</h1>
+    <div class="crm-page-sub">
+      Нові реєстрації що очікують підтвердження — {{ pending|length }} шт.
+    </div>
+  </div>
+</div>
+
+{% if not pending %}
+  <div style="background:var(--crm-surface);border:1px solid var(--crm-border);border-radius:var(--radius-lg);
+              padding:48px;text-align:center;color:var(--crm-muted)">
+    <div style="font-size:15px;font-weight:500;margin-bottom:4px">Немає нових запитів</div>
+    <div style="font-size:13px">Всі акаунти активовані або нових реєстрацій немає.</div>
+  </div>
+{% else %}
+  <div style="display:flex;flex-direction:column;gap:10px">
+    {% for dealer in pending %}
+    <div class="card">
+      <div class="card-body" style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center">
+        <div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+            <div style="font-size:15px;font-weight:600">{{ dealer.username }}</div>
+            {% if dealer.company_name %}
+              <span class="crm-badge" style="background:var(--crm-bg);color:var(--crm-muted)">
+                {{ dealer.company_name }}
+              </span>
+            {% endif %}
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:4px 16px;font-size:13px;color:var(--crm-muted)">
+            {% if dealer.email %}
+              <div>✉️ {{ dealer.email }}</div>
+            {% endif %}
+            {% if dealer.phone %}
+              <div>📱 {{ dealer.phone }}</div>
+            {% endif %}
+            {% if dealer.first_name or dealer.last_name %}
+              <div>👤 {{ dealer.first_name }} {{ dealer.last_name }}</div>
+            {% endif %}
+            <div>📅 ID: {{ dealer.id }}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="dealer_id" value="{{ dealer.id }}">
+            <input type="hidden" name="action" value="activate">
+            <button type="submit" class="btn-crm-success">✓ Активувати</button>
+          </form>
+          <form method="post" onsubmit="return confirm('Видалити акаунт {{ dealer.username }}?')">
+            {% csrf_token %}
+            <input type="hidden" name="dealer_id" value="{{ dealer.id }}">
+            <input type="hidden" name="action" value="reject">
+            <button type="submit" class="btn-crm-danger">✕ Відхилити</button>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}

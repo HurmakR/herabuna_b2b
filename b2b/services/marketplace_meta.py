@@ -65,6 +65,53 @@ def enrich_order_ui_meta(order):
     return order
 
 
+def extract_ttn_from_payload(channel: str, payload: dict | None) -> str:
+    """Extract TTN (Nova Poshta tracking number) from marketplace order payload.
+
+    Returns empty string if TTN is not present in the payload.
+    Does NOT overwrite a TTN that was set manually — that check is done by the caller.
+    """
+    payload = payload or {}
+    raw = payload.get("raw") or {}
+
+    if channel == "rozetka":
+        delivery = raw.get("delivery") or payload.get("delivery") or {}
+        ttn = (
+            delivery.get("ttn")
+            or delivery.get("tracking_number")
+            or delivery.get("declaration_number")
+            or raw.get("ttn")
+            or ""
+        )
+        return str(ttn).strip()
+
+    if channel == "woo":
+        # TTN location depends on which NP plugin is installed.
+        # We check the most common field names across popular plugins.
+        meta_list = raw.get("meta_data") or []
+        candidates = {
+            "_np_ttn", "np_ttn", "nova_poshta_ttn", "_nova_poshta_ttn",
+            "ttn", "_ttn", "tracking_number", "_tracking_number",
+            "wc_nova_poshta_ttn", "_wc_nova_poshta_ttn",
+            # Shipping Nova Poshta / NP plugin variants
+            "shipping_np_ttn", "_shipping_np_ttn",
+            "np_declaration_number", "_np_declaration_number",
+        }
+        for item in meta_list:
+            key = str(item.get("key") or "").strip()
+            if key in candidates:
+                val = str(item.get("value") or "").strip()
+                if val:
+                    return val
+        # Also check top-level payload keys as some plugins put it there
+        for key in candidates:
+            val = str(raw.get(key) or payload.get(key) or "").strip()
+            if val:
+                return val
+
+    return ""
+
+
 def extract_shipping_snapshot(channel: str, payload: dict | None) -> Dict[str, str]:
     payload = payload or {}
     raw = payload.get("raw") or {}

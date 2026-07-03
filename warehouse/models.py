@@ -6,6 +6,10 @@ from django.utils import timezone
 
 class InventoryLot(models.Model):
     product = models.ForeignKey("b2b.Product", on_delete=models.CASCADE, related_name="lots")
+    variant = models.ForeignKey(
+        "b2b.ProductVariant", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="lots"
+    )
 
     received_at = models.DateTimeField(auto_now_add=True)
 
@@ -36,7 +40,11 @@ class InventoryLot(models.Model):
         return qty_in - qty_reserved - qty_out
 
     def __str__(self) -> str:
-        return f"Lot#{self.id} {self.product.sku} {self.qty_available}/{self.qty_in}"
+        variant_label = ""
+        if self.variant_id:
+            attrs = self.variant.attributes or {}
+            variant_label = " [" + ", ".join(f"{k}:{v}" for k, v in attrs.items()) + "]"
+        return f"Lot#{self.id} {self.product.sku}{variant_label} {self.qty_available}/{self.qty_in}"
 
 
 class InventoryMove(models.Model):
@@ -129,6 +137,10 @@ class InboundReceipt(models.Model):
 class InboundReceiptLine(models.Model):
     receipt = models.ForeignKey("warehouse.InboundReceipt", on_delete=models.CASCADE, related_name="lines")
     product = models.ForeignKey("b2b.Product", on_delete=models.CASCADE)
+    variant = models.ForeignKey(
+        "b2b.ProductVariant", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="receipt_lines"
+    )
     qty = models.PositiveIntegerField()
     unit_cost = models.DecimalField(max_digits=10, decimal_places=2)
 
@@ -144,4 +156,8 @@ class InboundReceiptLine(models.Model):
         ordering = ("id",)
 
     def __str__(self) -> str:
-        return f"{self.product.sku} x{self.qty} @ {self.unit_cost}"
+        variant_label = ""
+        if self.variant_id:
+            attrs = self.variant.attributes or {}
+            variant_label = " [" + ", ".join(f"{k}:{v}" for k, v in attrs.items()) + "]"
+        return f"{self.product.sku}{variant_label} x{self.qty} @ {self.unit_cost}"

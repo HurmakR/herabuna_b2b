@@ -1,0 +1,41 @@
+{% extends "b2b/base.html" %}
+{% block title %}ТТН — Замовлення #{{ order.id }}{% endblock %}
+{% block breadcrumb %}Замовлення #{{ order.id }} — ТТН{% endblock %}
+
+{% block content %}
+<div class="crm-page-header">
+  <div>
+    <h1 class="crm-page-title">ТТН — Замовлення #{{ order.id }}</h1>
+    <div class="crm-page-sub">{{ order.dealer.username }}{% if order.dealer.company_name %} · {{ order.dealer.company_name }}{% endif %}</div>
+  </div>
+  <a href="{% url 'b2b:order_detail' order.id %}" class="btn-crm">← Назад</a>
+</div>
+
+<div style="max-width:480px">
+  <div class="card">
+    <div class="card-body">
+      <form method="post">
+        {% csrf_token %}
+        <div class="crm-filter-group mb-3">
+          <div class="crm-filter-label">Трек-номер Нової Пошти</div>
+          <input type="text"
+                 name="shipping_ttn"
+                 value="{{ order.shipping_ttn }}"
+                 class="form-control"
+                 placeholder="20450000000000"
+                 style="font-family:monospace;font-size:15px;letter-spacing:.5px"
+                 autofocus>
+          <div style="font-size:11px;color:var(--crm-muted);margin-top:4px">
+            Залиште порожнім щоб очистити ТТН.
+            Ручне введення захищене від перезапису синхронізацією.
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button type="submit" class="btn-crm-primary">Зберегти</button>
+          <a href="{% url 'b2b:order_detail' order.id %}" class="btn-crm">Скасувати</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

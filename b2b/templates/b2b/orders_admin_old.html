@@ -37,6 +37,7 @@
 {# ── Filters ── #}
 <form method="get" class="crm-filter-bar">
   <input type="hidden" name="tab" value="{{ tab }}">
+
   <div class="crm-filter-group">
     <div class="crm-filter-label">Клієнт</div>
     <select name="dealer" class="form-select form-select-sm" style="min-width:160px">
@@ -48,6 +49,7 @@
       {% endfor %}
     </select>
   </div>
+
   <div class="crm-filter-group">
     <div class="crm-filter-label">Статус</div>
     <select name="status" class="form-select form-select-sm" style="min-width:160px">
@@ -59,13 +61,17 @@
       <option value="cancelled"      {% if status == "cancelled" %}selected{% endif %}>Скасовано</option>
     </select>
   </div>
+
   <div style="display:flex;align-items:center;gap:6px;padding-bottom:2px">
     <input type="checkbox" name="active" value="1" id="activeOnly"
            {% if active_only %}checked{% endif %}
            onchange="this.form.submit()"
            style="width:15px;height:15px;cursor:pointer">
-    <label for="activeOnly" style="font-size:13px;color:var(--crm-muted);cursor:pointer;white-space:nowrap">Тільки активні</label>
+    <label for="activeOnly" style="font-size:13px;color:var(--crm-muted);cursor:pointer;white-space:nowrap">
+      Тільки активні
+    </label>
   </div>
+
   <div style="display:flex;gap:8px;align-items:flex-end">
     <button type="submit" class="btn-crm-primary" style="height:36px">Фільтрувати</button>
     <a href="?tab={{ tab }}" class="btn-crm" style="height:36px">Скинути</a>
@@ -91,10 +97,15 @@
     <tbody>
       {% for o in orders %}
       <tr>
-        <td><a href="{% url 'b2b:order_detail' o.id %}" style="font-weight:500;color:var(--crm-blue);text-decoration:none">#{{ o.id }}</a></td>
+        <td>
+          <a href="{% url 'b2b:order_detail' o.id %}"
+             style="font-weight:500;color:var(--crm-blue);text-decoration:none">#{{ o.id }}</a>
+        </td>
         <td>
           <div style="font-weight:500;font-size:13px">{{ o.dealer.username }}</div>
-          {% if o.dealer.company_name %}<div style="font-size:11px;color:var(--crm-muted)">{{ o.dealer.company_name }}</div>{% endif %}
+          {% if o.dealer.company_name %}
+            <div style="font-size:11px;color:var(--crm-muted)">{{ o.dealer.company_name }}</div>
+          {% endif %}
         </td>
         {% if tab != 'b2b' %}
         <td>
@@ -104,17 +115,26 @@
             {% else %}
               <span class="crm-badge" style="background:var(--crm-gray-bg);color:var(--crm-gray-text)">B2B</span>
             {% endif %}
-            {% if o.payment_label %}<span class="crm-badge" style="background:var(--crm-gray-bg);color:var(--crm-gray-text)">{{ o.payment_label }}</span>{% endif %}
-            {% if o.requires_control_payment %}<span class="crm-badge crm-badge-cancelled">Контроль оплати</span>{% endif %}
+            {% if o.payment_label %}
+              <span class="crm-badge" style="background:var(--crm-gray-bg);color:var(--crm-gray-text)">{{ o.payment_label }}</span>
+            {% endif %}
+            {% if o.requires_control_payment %}
+              <span class="crm-badge crm-badge-cancelled">Контроль оплати</span>
+            {% endif %}
           </div>
         </td>
         {% endif %}
         <td>
-          {% if o.status == 'draft' %}<span class="crm-badge crm-badge-draft"><span class="crm-dot"></span>Чернетка</span>
-          {% elif o.status == 'submitted' %}<span class="crm-badge crm-badge-submitted"><span class="crm-dot"></span>Надіслано</span>
-          {% elif o.status == 'pending_payment' %}<span class="crm-badge crm-badge-pending"><span class="crm-dot"></span>Очікує оплату</span>
-          {% elif o.status == 'shipped' %}<span class="crm-badge crm-badge-shipped"><span class="crm-dot"></span>Відвантажено</span>
-          {% elif o.status == 'cancelled' %}<span class="crm-badge crm-badge-cancelled"><span class="crm-dot"></span>Скасовано</span>
+          {% if o.status == 'draft' %}
+            <span class="crm-badge crm-badge-draft"><span class="crm-dot"></span>Чернетка</span>
+          {% elif o.status == 'submitted' %}
+            <span class="crm-badge crm-badge-submitted"><span class="crm-dot"></span>Надіслано</span>
+          {% elif o.status == 'pending_payment' %}
+            <span class="crm-badge crm-badge-pending"><span class="crm-dot"></span>Очікує оплату</span>
+          {% elif o.status == 'shipped' %}
+            <span class="crm-badge crm-badge-shipped"><span class="crm-dot"></span>Відвантажено</span>
+          {% elif o.status == 'cancelled' %}
+            <span class="crm-badge crm-badge-cancelled"><span class="crm-dot"></span>Скасовано</span>
           {% endif %}
         </td>
         <td class="text-end" style="font-weight:500">{{ o.total|floatformat:2 }}</td>
@@ -127,37 +147,36 @@
           {% endif %}
         </td>
         <td>
-          {% if o.shipping_ttn %}<span class="crm-ttn">{{ o.shipping_ttn }}</span>
-          {% else %}<span style="color:var(--crm-muted);font-size:12px">—</span>{% endif %}
+          {% if o.shipping_ttn %}
+            <span class="crm-ttn">{{ o.shipping_ttn }}</span>
+          {% else %}
+            <span style="color:var(--crm-muted);font-size:12px">—</span>
+          {% endif %}
         </td>
-        <td style="font-size:12px;color:var(--crm-muted);white-space:nowrap">{{ o.created_at|date:"d.m.Y H:i" }}</td>
+        <td style="font-size:12px;color:var(--crm-muted);white-space:nowrap">
+          {{ o.created_at|date:"d.m.Y H:i" }}
+        </td>
         <td>
           <div style="display:flex;gap:5px;flex-wrap:wrap">
             <a class="btn-crm" href="{% url 'b2b:order_detail' o.id %}">Деталі</a>
             {% if o.status == 'submitted' %}
               <form method="post" action="{% url 'b2b:order_admin_action' o.id 'confirm' %}" class="d-inline">
                 {% csrf_token %}
-                <input type="hidden" name="tab" value="{{ tab }}">
-                <input type="hidden" name="active" value="{% if active_only %}1{% endif %}">
                 <button class="btn-crm-success">Підтвердити</button>
               </form>
               <form method="post" action="{% url 'b2b:order_admin_action' o.id 'cancel' %}" class="d-inline"
                     onsubmit="return confirm('Скасувати замовлення?')">
                 {% csrf_token %}
-                <input type="hidden" name="tab" value="{{ tab }}">
-                <input type="hidden" name="active" value="{% if active_only %}1{% endif %}">
                 <button class="btn-crm-danger">Скасувати</button>
               </form>
             {% elif o.status == 'pending_payment' %}
-              <button class="btn-crm-blue" type="button"
-                      onclick="shipModal('{% url 'b2b:order_admin_action' o.id 'ship' %}','{{ tab }}','{% if active_only %}1{% endif %}')">
-                Відвантажити
-              </button>
+              <form method="post" action="{% url 'b2b:order_admin_action' o.id 'ship' %}" class="d-inline">
+                {% csrf_token %}
+                <button class="btn-crm-blue">Відвантажити</button>
+              </form>
               <form method="post" action="{% url 'b2b:order_admin_action' o.id 'cancel' %}" class="d-inline"
                     onsubmit="return confirm('Скасувати замовлення?')">
                 {% csrf_token %}
-                <input type="hidden" name="tab" value="{{ tab }}">
-                <input type="hidden" name="active" value="{% if active_only %}1{% endif %}">
                 <button class="btn-crm-danger">Скасувати</button>
               </form>
             {% endif %}
@@ -166,48 +185,12 @@
       </tr>
       {% empty %}
       <tr>
-        <td colspan="9" style="text-align:center;padding:40px;color:var(--crm-muted)">Замовлень немає.</td>
+        <td colspan="9" style="text-align:center;padding:40px;color:var(--crm-muted)">
+          Замовлень немає.
+        </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
-
-<form method="post" id="shipForm" action="">
-  {% csrf_token %}
-  <input type="hidden" name="create_ttn" id="shipCreateTtn" value="1">
-  <input type="hidden" name="tab" id="shipTab" value="">
-  <input type="hidden" name="active" id="shipActive" value="">
-</form>
-<div id="sm" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1050;align-items:center;justify-content:center">
-  <div style="background:#fff;border-radius:12px;padding:24px;max-width:400px;width:90%">
-    <div style="font-weight:600;margin-bottom:12px">Відвантажити замовлення</div>
-    <label style="display:flex;gap:8px;padding:10px;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:8px;cursor:pointer">
-      <input type="radio" name="sm_ttn" value="1" checked>
-      <div><div style="font-weight:500">Сформувати ТТН в НП</div><div style="font-size:12px;color:#6b7280">Автоматично створить накладну</div></div>
-    </label>
-    <label style="display:flex;gap:8px;padding:10px;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:16px;cursor:pointer">
-      <input type="radio" name="sm_ttn" value="0">
-      <div><div style="font-weight:500">Без ТТН</div><div style="font-size:12px;color:#6b7280">Вкажете вручну пізніше</div></div>
-    </label>
-    <div style="display:flex;gap:8px;justify-content:flex-end">
-      <button type="button" onclick="document.getElementById('sm').style.display='none'" class="btn-crm">Скасувати</button>
-      <button type="button" onclick="doShip()" class="btn-crm-primary">Відвантажити</button>
-    </div>
-  </div>
-</div>
-<script>
-function shipModal(url,tab,active){
-  document.getElementById('shipForm').action=url;
-  document.getElementById('shipTab').value=tab||'';
-  document.getElementById('shipActive').value=active||'';
-  document.getElementById('sm').style.display='flex';
-}
-function doShip(){
-  document.getElementById('shipCreateTtn').value=document.querySelector('input[name="sm_ttn"]:checked').value;
-  document.getElementById('sm').style.display='none';
-  document.getElementById('shipForm').submit();
-}
-document.getElementById('sm').addEventListener('click',function(e){if(e.target===this)this.style.display='none';});
-</script>
 {% endblock %}

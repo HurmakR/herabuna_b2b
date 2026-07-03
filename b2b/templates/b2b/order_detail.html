@@ -21,10 +21,25 @@
         <form method="post" action="{% url 'b2b:order_admin_action' order.id 'confirm' %}" class="d-inline">{% csrf_token %}<button class="btn btn-sm btn-success">Підтвердити</button></form>
         <form method="post" action="{% url 'b2b:order_admin_action' order.id 'cancel' %}" class="d-inline" onsubmit="return confirm('Скасувати замовлення?')">{% csrf_token %}<button class="btn btn-sm btn-outline-danger">Скасувати</button></form>
       {% elif order.status == 'pending_payment' %}
-        <form method="post" action="{% url 'b2b:order_admin_action' order.id 'ship' %}" class="d-inline">{% csrf_token %}<button class="btn btn-sm btn-primary">Відвантажити</button></form>
+        <button class="btn btn-sm btn-primary" type="button" onclick="document.getElementById('shipForm').action='{% url 'b2b:order_admin_action' order.id 'ship' %}';document.getElementById('sm').style.display='flex'">Відвантажити</button>
         <form method="post" action="{% url 'b2b:order_admin_action' order.id 'cancel' %}" class="d-inline" onsubmit="return confirm('Скасувати замовлення?')">{% csrf_token %}<button class="btn btn-sm btn-outline-danger">Скасувати</button></form>
       {% endif %}
     {% endif %}
+
+    {# ── Оплата для клієнта ── #}
+    {% if not request.user.is_staff and order.status == 'pending_payment' %}
+      <a href="{% url 'b2b:payment_page' order.id %}" class="btn btn-success btn-sm fw-semibold">💳 Оплатити {{ order.total }} ₴</a>
+    {% endif %}
+
+    {# ── Документи вгорі ── #}
+    {% if order.status != 'draft' and order.status != 'cancelled' and order.status != 'submitted' %}
+      <a class="btn btn-outline-primary btn-sm" href="{% url 'b2b:invoice_print' order.id %}">📄 Рахунок</a>
+      <a class="btn btn-outline-primary btn-sm" href="{% url 'b2b:waybill_print' order.id %}">📋 Накладна</a>
+      {% if order.status == 'shipped' and order.shipping_ttn %}
+        <a class="btn btn-outline-secondary btn-sm" href="{% url 'b2b:order_np_label' order.id %}">🏷 Етикетка 10×10</a>
+      {% endif %}
+    {% endif %}
+
   </div>
 </div>
 
@@ -44,25 +59,34 @@
   <div class="col-md-6">
     <div class="card">
       <div class="card-header d-flex justify-content-between align-items-center">
-  <span>Доставка (Нова Пошта)</span>
-  <span class="d-flex align-items-center gap-2">
-    {% if order.shipping_city_ref and order.shipping_warehouse_ref and order.shipping_recipient and order.shipping_phone %}
-      <span class="badge text-bg-success">OK</span>
-    {% else %}
-      <span class="badge text-bg-warning">Не заповнено</span>
-    {% endif %}
-    {% if request.user.is_staff %}
-      <a class="btn btn-sm btn-outline-primary" href="{% url 'b2b:order_admin_edit_shipping' order.id %}">Адреса</a>
-    {% endif %}
-  </span>
-</div>
+        <span>Доставка (Нова Пошта)</span>
+        <span class="d-flex align-items-center gap-2">
+          {% if order.shipping_city_ref and order.shipping_warehouse_ref and order.shipping_recipient and order.shipping_phone %}
+            <span class="badge text-bg-success">OK</span>
+          {% else %}
+            <span class="badge text-bg-warning">Не заповнено</span>
+          {% endif %}
+          {% if request.user.is_staff %}
+            <a class="btn btn-sm btn-outline-primary" href="{% url 'b2b:order_admin_edit_shipping' order.id %}">Адреса</a>
+          {% endif %}
+        </span>
+      </div>
       <div class="card-body">
         <div>{% if order.shipping_city %}{{ order.shipping_city }}{% else %}<span class="text-muted">—</span>{% endif %}</div>
         <div class="small text-muted">{% if order.shipping_warehouse %}{{ order.shipping_warehouse }}{% else %}—{% endif %}</div>
         <div class="small mt-2">Одержувач: {% if order.shipping_recipient %}{{ order.shipping_recipient }}{% else %}—{% endif %} ({% if order.shipping_phone %}{{ order.shipping_phone }}{% else %}—{% endif %})</div>
         <div class="small mt-2">Вага: {% if order_weight_kg %}<strong>{{ order_weight_kg|floatformat:1 }}</strong> кг{% else %}—{% endif %}</div>
         {% if order.shipping_ttn %}
-          <div class="mt-2">ТТН: <span class="fw-semibold">{{ order.shipping_ttn }}</span></div>
+          <div class="mt-2 d-flex flex-wrap gap-2 align-items-center">
+            <span>ТТН: <span class="fw-semibold">{{ order.shipping_ttn }}</span></span>
+            {% if request.user.is_staff and order.status == 'shipped' %}
+              <a class="btn btn-outline-secondary btn-sm py-0 px-2" href="{% url 'b2b:order_admin_edit_ttn' order.id %}">Редагувати ТТН</a>
+            {% endif %}
+          </div>
+        {% elif request.user.is_staff and order.status == 'shipped' %}
+          <div class="mt-2">
+            <a class="btn btn-outline-secondary btn-sm" href="{% url 'b2b:order_admin_edit_ttn' order.id %}">Вказати ТТН</a>
+          </div>
         {% endif %}
       </div>
     </div>
@@ -90,7 +114,18 @@
           {% endwith %}
         </td>
         <td>{{ i.product.sku }}</td>
-        <td>{% if i.variant %}{{ i.variant.name_with_weight }}{% else %}{{ i.product.name_with_weight }}{% endif %}</td>
+        <td>
+          {% if i.variant %}
+            <div>{{ i.product.name }}</div>
+            <div class="small text-muted mt-1">
+              {% for k, v in i.variant.attributes.items %}
+                {{ k }}: <strong>{{ v }}</strong>{% if not forloop.last %} · {% endif %}
+              {% endfor %}
+            </div>
+          {% else %}
+            {{ i.product.name_with_weight }}
+          {% endif %}
+        </td>
         <td class="text-end">{{ i.qty }}</td>
         <td class="text-end">{{ i.price }}</td>
         <td class="text-end">{{ i.line_total }}</td>
@@ -104,22 +139,7 @@
   </table>
 </div>
 
-<p class="d-flex flex-wrap gap-2">
-{% if order.status != 'draft' and order.status != 'cancelled' and order.status != 'submitted' %}
-  <div class="d-flex flex-wrap gap-2 my-2">
-    <a class="btn btn-outline-primary btn-sm" href="{% url 'b2b:invoice_print' order.id %}">Рахунок</a>
-    <a class="btn btn-outline-primary btn-sm" href="{% url 'b2b:waybill_print' order.id %}">Накладна</a>
 
-    {# для відвантажених: етикетка НП (залишаємо) #}
-    {% if order.status == 'shipped' and order.shipping_ttn %}
-      <a class="btn btn-outline-secondary btn-sm" href="{% url 'b2b:order_np_label' order.id %}">Етикетка 10×10</a>
-    {% endif %}
-  </div>
-{% endif %}
-  {% if request.user.is_staff and order.status == 'shipped' and order.shipping_ttn %}
-    <a class="btn btn-outline-secondary" href="{% url 'b2b:order_np_label' order.id %}">Етикетка 10×10</a>
-  {% endif %}
-</p>
 
 {% if not request.user.is_staff %}
   {% if order.status == 'draft' or order.status == 'cancelled' %}
@@ -131,4 +151,30 @@
   {% endif %}
 {% endif %}
 
+
+<form method="post" id="shipForm" action="">
+  {% csrf_token %}
+  <input type="hidden" name="create_ttn" id="shipCreateTtn" value="1">
+</form>
+<div id="sm" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1050;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:24px;max-width:400px;width:90%">
+    <div style="font-weight:600;margin-bottom:12px">Відвантажити замовлення</div>
+    <label style="display:flex;gap:8px;padding:10px;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:8px;cursor:pointer">
+      <input type="radio" name="sm_ttn" value="1" checked>
+      <div><div style="font-weight:500">Сформувати ТТН в НП</div><div style="font-size:12px;color:#6b7280">Автоматично створить накладну</div></div>
+    </label>
+    <label style="display:flex;gap:8px;padding:10px;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:16px;cursor:pointer">
+      <input type="radio" name="sm_ttn" value="0">
+      <div><div style="font-weight:500">Без ТТН</div><div style="font-size:12px;color:#6b7280">Вкажете вручну пізніше</div></div>
+    </label>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button type="button" onclick="document.getElementById('sm').style.display='none'" class="btn btn-outline-secondary btn-sm">Скасувати</button>
+      <button type="button" onclick="doShip()" class="btn btn-primary btn-sm">Відвантажити</button>
+    </div>
+  </div>
+</div>
+<script>
+function doShip(){document.getElementById('shipCreateTtn').value=document.querySelector('input[name="sm_ttn"]:checked').value;document.getElementById('sm').style.display='none';document.getElementById('shipForm').submit();}
+document.getElementById('sm').addEventListener('click',function(e){if(e.target===this)this.style.display='none';});
+</script>
 {% endblock %}

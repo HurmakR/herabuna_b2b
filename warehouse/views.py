@@ -179,9 +179,15 @@ def receive_receipt_view(request):
                 product = f.cleaned_data.get("product")
                 qty = f.cleaned_data.get("qty")
                 unit_cost = f.cleaned_data.get("unit_cost")
+                variant = f.cleaned_data.get("variant")
                 if not product or not qty:
                     continue
-                lines.append({"product": product, "qty": qty, "unit_cost": unit_cost})
+                lines.append({
+                    "product": product,
+                    "variant": variant or None,
+                    "qty": qty,
+                    "unit_cost": unit_cost,
+                })
 
             if not lines:
                 messages.error(request, "Додайте хоча б один рядок товару.")
@@ -207,3 +213,24 @@ def receive_receipt_view(request):
         "warehouse/receive_receipt.html",
         {"header_form": header_form, "formset": formset},
     )
+
+@staff_member_required
+def api_variants(request):
+    """AJAX: return variants for a product as JSON."""
+    from django.http import JsonResponse
+    from b2b.models import ProductVariant
+    product_id = (request.GET.get("product_id") or "").strip()
+    if not product_id.isdigit():
+        return JsonResponse([], safe=False)
+    variants = ProductVariant.objects.filter(
+        product_id=int(product_id), is_active=True
+    ).order_by("id")
+    data = []
+    for v in variants:
+        attrs = v.attributes or {}
+        label = ", ".join(f"{k}: {val}" for k, val in attrs.items())
+        if v.sku:
+            label = f"{v.sku} — {label}" if label else v.sku
+        label += f" (залишок: {v.stock_qty})"
+        data.append({"id": v.id, "label": label})
+    return JsonResponse(data, safe=False)

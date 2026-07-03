@@ -1,66 +1,237 @@
 {% extends "b2b/base.html" %}
+{% load b2b_extras %}
+{% block title %}{{ product.name_with_weight }} — Herabuna B2B{% endblock %}
 {% block content %}
-<h2>{{ product.name_with_weight }}</h2>
-{% if messages %}
-  <ul class="messages">{% for message in messages %}<li class="{{ message.tags }}">{{ message }}</li>{% endfor %}</ul>
-{% endif %}
-{% if error %}<p style="color:red">{{ error }}</p>{% endif %}
-<p>SKU: {{ product.sku }}</p>
-{% if product.main_image_url %}
-  <img src="{{ product.main_image_url }}" alt="" style="max-height:240px">
-{% endif %}
-<p>{{ product.short_description|safe }}</p>
 
-<form method="post" action="{% url 'b2b:add_to_cart_with_attrs' product.id %}">
-  {% csrf_token %}
-  <input type="hidden" name="next" value="{{ request.GET.next|default:request.get_full_path }}">
-  {% for name, options in variant_options.items %}
-    <div style="margin:6px 0">
-      <label><strong>{{ name }}</strong></label><br>
-      <select name="attrs[{{ name }}]">
-        <option value="">-- Обрати --</option>
-        {% for opt in options %}
-          <option value="{{ opt }}">{{ opt }}</option>
-        {% endfor %}
-      </select>
+<div class="crm-page-header">
+  <div>
+    <h1 class="crm-page-title" style="font-size:18px">{{ product.name_with_weight }}</h1>
+    <div class="crm-page-sub">SKU: {{ product.sku }}{% if product.brand %} · {{ product.brand.name }}{% endif %}</div>
+  </div>
+  <a href="{% url 'b2b:product_list' %}" class="btn-crm">← Каталог</a>
+</div>
+
+{% if messages %}
+  {% for message in messages %}
+    <div class="alert alert-{{ message.tags|default:'secondary' }} alert-dismissible fade show" role="alert">
+      {{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
     </div>
   {% endfor %}
+{% endif %}
 
-  <div style="margin:8px 0;display:flex;gap:6px;align-items:center;">
-    <label>Кількість:</label>
-    <div class="qtybox" style="display:flex;align-items:center;border:1px solid #ccc;border-radius:6px;overflow:hidden;">
-      <button type="button" id="qminus" style="padding:6px 10px;border:none;background:#eee">−</button>
-      <input type="number" name="qty" id="qty" value="1" min="1" style="width:56px;text-align:center;border:none">
-      <button type="button" id="qplus" style="padding:6px 10px;border:none;background:#eee">+</button>
-    </div>
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    {% if product.main_image_url %}
+      <img src="{{ product.main_image_url }}" alt="{{ product.name }}"
+           style="width:100%;max-height:300px;object-fit:contain;border-radius:var(--radius-lg);border:1px solid var(--crm-border);padding:12px;background:#fff">
+    {% endif %}
+  </div>
+  <div class="col-md-8">
+    {% if product.short_description %}
+      <div style="font-size:14px;color:var(--crm-muted);line-height:1.6;margin-bottom:16px">
+        {{ product.short_description|safe }}
+      </div>
+    {% endif %}
+
+    {% if not product.variants.all %}
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">
+        <div style="font-size:22px;font-weight:600;color:var(--crm-text)">{{ product.wholesale_price }} ₴</div>
+        {% if product.stock_qty > 0 %}
+          <span class="crm-badge crm-badge-shipped"><span class="crm-dot"></span>{{ product.stock_qty }} шт</span>
+        {% else %}
+          <span class="crm-badge crm-badge-draft">Немає в наявності</span>
+        {% endif %}
+      </div>
+      {% if not request.user.is_staff and product.stock_qty > 0 %}
+        <form method="post" action="{% url 'b2b:add_to_cart' product.id %}" style="display:flex;align-items:center;gap:8px">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+          <div style="display:flex;align-items:center;border:1px solid var(--crm-border);border-radius:var(--radius-md);overflow:hidden">
+            <button type="button" onclick="stepQty('qty_simple',-1)" style="padding:8px 12px;border:none;background:var(--crm-bg);cursor:pointer;font-size:16px">−</button>
+            <input type="number" name="qty" id="qty_simple" value="1" min="1" style="width:56px;text-align:center;border:none;font-size:14px;font-weight:500">
+            <button type="button" onclick="stepQty('qty_simple',1)" style="padding:8px 12px;border:none;background:var(--crm-bg);cursor:pointer;font-size:16px">+</button>
+          </div>
+          <button class="btn-crm-primary" type="submit">До кошика</button>
+        </form>
+      {% elif request.user.is_staff %}
+        <p style="font-size:13px;color:var(--crm-muted)"><em>Адмін — додавання недоступне</em></p>
+      {% endif %}
+    {% endif %}
+  </div>
+</div>
+
+{# Варіації #}
+{% if variants %}
+<form method="post" action="{% url 'b2b:add_to_cart_with_attrs' product.id %}" id="variantsForm">
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+  <input type="hidden" name="bulk" value="1">
+
+  {# ── Десктоп: таблиця ── #}
+  <div class="d-none d-md-block crm-table mb-3">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          {% for attr in attr_names %}
+            <th style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--crm-muted)">{{ attr }}</th>
+          {% endfor %}
+          <th style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--crm-muted)">Ціна</th>
+          <th style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--crm-muted)">Наявність</th>
+          {% if not request.user.is_staff %}
+            <th style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--crm-muted);text-align:center">К-сть</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in variants %}
+        <tr {% if v.stock_qty <= 0 %}style="opacity:.55"{% endif %}>
+          {% for attr in attr_names %}
+            <td style="font-size:13px">{{ v.attributes|get_item:attr|default:"—" }}</td>
+          {% endfor %}
+          <td style="font-weight:500;font-size:14px;white-space:nowrap">{{ v.wholesale_price }} ₴</td>
+          <td>
+            {% if v.stock_qty > 0 %}
+              <span class="crm-badge crm-badge-shipped" style="font-size:11px"><span class="crm-dot"></span>{{ v.stock_qty }} шт</span>
+            {% else %}
+              <span class="crm-badge crm-badge-draft" style="font-size:11px">Немає</span>
+            {% endif %}
+          </td>
+          {% if not request.user.is_staff %}
+          <td style="text-align:center">
+            {% if v.stock_qty > 0 %}
+              <div style="display:flex;align-items:center;justify-content:center;border:1px solid var(--crm-border);border-radius:var(--radius-md);overflow:hidden;width:fit-content;margin:0 auto">
+                <button type="button" onclick="stepQty('qty_{{ v.id }}',-1)"
+                        style="padding:5px 10px;border:none;background:var(--crm-bg);cursor:pointer;font-size:14px;line-height:1">−</button>
+                <input type="number" name="variant_qty_{{ v.id }}" id="qty_{{ v.id }}"
+                       value="0" min="0" max="{{ v.stock_qty }}"
+                       style="width:48px;text-align:center;border:none;font-size:13px;font-weight:500">
+                <button type="button" onclick="stepQty('qty_{{ v.id }}',1)"
+                        style="padding:5px 10px;border:none;background:var(--crm-bg);cursor:pointer;font-size:14px;line-height:1">+</button>
+              </div>
+            {% else %}
+              <span style="color:var(--crm-muted);font-size:12px">—</span>
+            {% endif %}
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 
-  {% if variant_options|length == 0 and product.stock_qty|default:0 <= 0 %}
-    <p style="color:#888"><em>Немає в наявності.</em></p>
-  {% else %}
-    {% if not request.user.is_staff %}
-      <button class="btn" type="submit">Додати до кошика</button>
-    {% else %}
-      <p style="color:#666"><em>Адмін перегляд — додавання недоступне.</em></p>
-    {% endif %}
-  {% endif %}
-  <a class="btn" href="{% url 'b2b:product_list' %}">Назад</a>
-</form>
+  {# ── Мобільний: картки ── #}
+  <div class="d-md-none" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
+    {% for v in variants %}
+    <div style="border:1px solid var(--crm-border);border-radius:var(--radius-lg);padding:12px;
+                background:var(--crm-surface);{% if v.stock_qty <= 0 %}opacity:.6;{% endif %}">
+      {# Атрибути #}
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+        {% for attr in attr_names %}
+          <div style="font-size:12px">
+            <span style="color:var(--crm-muted)">{{ attr }}:</span>
+            <strong>{{ v.attributes|get_item:attr|default:"—" }}</strong>
+          </div>
+        {% endfor %}
+      </div>
+      {# Ціна і наявність #}
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:{% if not request.user.is_staff and v.stock_qty > 0 %}10{% else %}0{% endif %}px">
+        <span style="font-size:16px;font-weight:600;color:var(--crm-text)">{{ v.wholesale_price }} ₴</span>
+        {% if v.stock_qty > 0 %}
+          <span class="crm-badge crm-badge-shipped" style="font-size:11px"><span class="crm-dot"></span>{{ v.stock_qty }} шт</span>
+        {% else %}
+          <span class="crm-badge crm-badge-draft" style="font-size:11px">Немає</span>
+        {% endif %}
+      </div>
+      {# Кількість — тільки якщо є в наявності і не адмін #}
+      {% if not request.user.is_staff and v.stock_qty > 0 %}
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:12px;color:var(--crm-muted)">Кількість:</span>
+        <div style="display:flex;align-items:center;border:1px solid var(--crm-border);border-radius:var(--radius-md);overflow:hidden">
+          <button type="button" onclick="stepQty('mqty_{{ v.id }}',-1)"
+                  style="padding:8px 14px;border:none;background:var(--crm-bg);cursor:pointer;font-size:16px;line-height:1">−</button>
+          <input type="number" name="variant_qty_{{ v.id }}" id="mqty_{{ v.id }}"
+                 value="0" min="0" max="{{ v.stock_qty }}"
+                 style="width:52px;text-align:center;border:none;font-size:14px;font-weight:500;padding:8px 0">
+          <button type="button" onclick="stepQty('mqty_{{ v.id }}',1)"
+                  style="padding:8px 14px;border:none;background:var(--crm-bg);cursor:pointer;font-size:16px;line-height:1">+</button>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
 
-{% if product.gallery %}
-  <h3>Галерея</h3>
-  {% for url in product.gallery %}
-    <img src="{{ url }}" alt="" style="height:80px;margin-right:6px">
-  {% endfor %}
+  {# Кнопка до кошика #}
+  {% if not request.user.is_staff %}
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn-crm-primary" type="submit" onclick="return validateVariants()"
+              style="padding:12px 24px;font-size:15px">
+        До кошика
+      </button>
+      <span id="variantTotal" style="font-size:13px;color:var(--crm-muted)"></span>
+    </div>
+  {% else %}
+    <p style="font-size:13px;color:var(--crm-muted)"><em>Адмін — додавання недоступне</em></p>
+  {% endif %}
+</form>
 {% endif %}
 
 <script>
-const qm = document.getElementById('qminus');
-const qp = document.getElementById('qplus');
-const qi = document.getElementById('qty');
-if (qm && qp && qi) {
-  qm.addEventListener('click', ()=>{ qi.value = Math.max(1, parseInt(qi.value||'1',10)-1); });
-  qp.addEventListener('click', ()=>{ qi.value = Math.max(1, parseInt(qi.value||'1',10)+1); });
+function stepQty(id, delta) {
+  const inp = document.getElementById(id);
+  if (!inp) return;
+  const max = parseInt(inp.getAttribute('max') || '9999', 10);
+  let v = parseInt(inp.value || '0', 10) + delta;
+  if (v < 0) v = 0;
+  if (v > max) v = max;
+  inp.value = v;
+  // Sync desktop/mobile inputs for same variant
+  const name = inp.getAttribute('name');
+  if (name) {
+    document.querySelectorAll(`[name="${name}"]`).forEach(el => {
+      if (el !== inp) el.value = v;
+    });
+  }
+  updateTotal();
 }
+
+function updateTotal() {
+  const seen = new Set();
+  let total = 0, count = 0;
+  document.querySelectorAll('[name^="variant_qty_"]').forEach(inp => {
+    const name = inp.getAttribute('name');
+    if (seen.has(name)) return;
+    seen.add(name);
+    const qty = parseInt(inp.value || '0', 10);
+    if (qty > 0) {
+      count += qty;
+      const price = parseFloat(inp.getAttribute('data-price') || '0');
+      total += qty * price;
+    }
+  });
+  const el = document.getElementById('variantTotal');
+  if (el) el.textContent = count > 0 ? `${count} шт` : '';
+}
+
+function validateVariants() {
+  const seen = new Set();
+  const any = Array.from(document.querySelectorAll('[name^="variant_qty_"]'))
+    .some(inp => {
+      const name = inp.getAttribute('name');
+      if (seen.has(name)) return false;
+      seen.add(name);
+      return parseInt(inp.value || '0', 10) > 0;
+    });
+  if (!any) {
+    alert('Вкажіть кількість хоча б для одного варіанту');
+    return false;
+  }
+  return true;
+}
+
+document.querySelectorAll('[name^="variant_qty_"]').forEach(inp => {
+  inp.addEventListener('change', updateTotal);
+  inp.addEventListener('input', updateTotal);
+});
 </script>
 {% endblock %}

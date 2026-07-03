@@ -1,10 +1,8 @@
 from django.urls import path
-from . import views
-from . import service_views
+from . import views, service_views, marketing_views, admin_views
 from .service_price import service_price, service_price_export
 
 app_name = "reports"
-
 urlpatterns = [
     path("sales/", views.sales_report, name="sales_report"),
     path("stock/", views.stock_report, name="stock_report"),
@@ -22,4 +20,10 @@ urlpatterns = [
     path("service/marketplace/orders/apply/", service_views.service_marketplace_orders_apply, name="service_marketplace_orders_apply"),
     path("service/price/", service_price, name="service_price"),
     path("service/price/export/", service_price_export, name="service_price_export"),
+    path("service/sync-variations/", service_views.service_sync_variations, name="service_sync_variations"),
+    path("service/marketplace/queue/clear/", service_views.service_marketplace_clear_queue, name="service_marketplace_clear_queue"),
+    path("marketing/mailing/", marketing_views.marketing_mailing, name="marketing_mailing"),
+    path("marketing/validate-email/", marketing_views.validate_email_domain, name="marketing_validate_email"),
+    path("admin/activity/", admin_views.activity_monitor, name="admin_activity"),
+    path("admin/activation/", admin_views.activation_requests, name="activation_requests"),
 ]

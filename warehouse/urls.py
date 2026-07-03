@@ -16,4 +16,5 @@ urlpatterns = [
 
     # Lots page kept for audit/debug (not linked from dashboard).
     path("product/<int:product_id>/lots/", views.product_lots, name="product_lots"),
+    path("api/variants/", views.api_variants, name="api_variants"),
 ]

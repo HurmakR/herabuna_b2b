@@ -231,43 +231,32 @@ def service_woo_import_apply(request):
 @user_passes_test(_is_superuser)
 @require_GET
 def service_marketplace_orders(request):
-    from django.db.models import Sum
     from b2b.models import Order
-    from warehouse.models import InventoryReservation
 
     channel = (request.GET.get("channel") or "").strip().lower()
     days = int(request.GET.get("days") or 14)
 
-    qs = Order.objects.filter(channel__in=["woo", "rozetka"]).order_by("-created_at").select_related("dealer")
-    from datetime import timedelta
-    from django.utils import timezone as dj_timezone
-    if days and days > 0:
-        qs = qs.filter(created_at__gte=dj_timezone.now() - timedelta(days=days))
+    # Queue shows only draft orders (not yet accepted or dismissed)
+    qs = (
+        Order.objects
+        .filter(channel__in=["woo", "rozetka"], status="draft")
+        .order_by("-created_at")
+        .select_related("dealer")
+    )
     if channel in {"woo", "rozetka"}:
         qs = qs.filter(channel=channel)
 
-    orders = list(qs[:200])
-
-    # Precompute reserved qty per order (single query)
-    res_rows = (
-        InventoryReservation.objects
-        .filter(order_item__order_id__in=[o.id for o in orders])
-        .values("order_item__order_id")
-        .annotate(qty=Sum("qty"))
-    )
-    reserved_map = {int(r["order_item__order_id"]): int(r["qty"] or 0) for r in res_rows}
+    orders = list(qs[:500])
 
     for o in orders:
         payload = o.external_payload or {}
         enrich_order_ui_meta(o)
-        # Django templates disallow access to attributes starting with underscores.
-        # Attach computed values using safe attribute names.
-        o.reserved_qty = reserved_map.get(o.id, 0)
         o.unmatched_count = len(payload.get("unmatched_items") or [])
         o.sync_error = payload.get("sync_error") or ""
 
     context = {
         "orders": orders,
+        "total_new": len(orders),
         "channel": channel,
         "days": days,
     }
@@ -281,19 +270,11 @@ def service_marketplace_orders_sync(request):
 
     source = (request.POST.get("source") or "all").strip().lower()
     days = int(request.POST.get("days") or 14)
-    auto_apply = bool(request.POST.get("auto_apply") == "1")
 
     if source in {"woo", "all"}:
         try:
-            res = sync_woo_orders(days=days, auto_apply=auto_apply)
-            messages.success(
-                request,
-                (
-                    f"Woo: created={res.created}, updated={res.updated}, "
-                    f"reserved={res.reserved}, released={res.released}, "
-                    f"skipped_unmapped={res.skipped_unmapped}, errors={len(res.errors)}"
-                ),
-            )
+            res = sync_woo_orders(days=days)
+            messages.success(request, f"Woo: нових={res.created}, оновлено={res.updated}")
             for e in res.errors[:5]:
                 messages.warning(request, f"Woo: {e}")
         except Exception as e:
@@ -301,15 +282,8 @@ def service_marketplace_orders_sync(request):
 
     if source in {"rozetka", "all"}:
         try:
-            res = sync_rozetka_orders(days=days, auto_apply=auto_apply, types=1)
-            messages.success(
-                request,
-                (
-                    f"Rozetka: created={res.created}, updated={res.updated}, "
-                    f"reserved={res.reserved}, released={res.released}, "
-                    f"skipped_unmapped={res.skipped_unmapped}, errors={len(res.errors)}"
-                ),
-            )
+            res = sync_rozetka_orders(days=days, types=1)
+            messages.success(request, f"Rozetka: нових={res.created}, оновлено={res.updated}")
             for e in res.errors[:5]:
                 messages.warning(request, f"Rozetka: {e}")
         except Exception as e:
@@ -322,12 +296,12 @@ def service_marketplace_orders_sync(request):
 @require_POST
 def service_marketplace_orders_apply(request):
     from b2b.models import Order
-    from b2b.services.marketplace_orders import apply_stock_action
+    from b2b.services.marketplace_orders import apply_stock_action, accept_marketplace_order, dismiss_marketplace_order
 
     action = (request.POST.get("action") or "").strip().lower()
     order_ids = _parse_int_list(request.POST.getlist("order_ids"))
 
-    if action not in {"accept", "reject", "reserve", "release", "ship", "cancel"}:
+    if action not in {"accept", "reject", "dismiss", "reserve", "release", "ship", "cancel"}:
         messages.error(request, "Невідома дія.")
         return redirect("reports:service_marketplace_orders")
 
@@ -342,8 +316,15 @@ def service_marketplace_orders_apply(request):
         if not order:
             continue
         try:
-            apply_stock_action(order=order, action=action)
+            if action in {"accept", "reserve"}:
+                accept_marketplace_order(order)
+            elif action in {"dismiss", "reject", "cancel"}:
+                dismiss_marketplace_order(order)
+            else:
+                apply_stock_action(order=order, action=action)
             ok += 1
+        except ValueError as e:
+            messages.warning(request, str(e))
         except Exception as e:
             failed += 1
             messages.warning(request, f"{order.channel}:{order.external_id} — {e}")
@@ -355,6 +336,19 @@ def service_marketplace_orders_apply(request):
 
     return redirect("reports:service_marketplace_orders")
 
+
+
+@user_passes_test(_is_superuser)
+@require_POST
+def service_marketplace_clear_queue(request):
+    """Delete all draft marketplace orders from the sync queue."""
+    from b2b.models import Order
+    count, _ = Order.objects.filter(
+        channel__in=["woo", "rozetka"],
+        status="draft",
+    ).delete()
+    messages.success(request, f"Чергу очищено: видалено {count} записів.")
+    return redirect("reports:service_marketplace_orders")
 
 def service_woo_stock_sync(request):
     """
@@ -412,6 +406,38 @@ def service_woo_stock_sync(request):
         },
     )
 
+
+
+@user_passes_test(_is_superuser)
+@require_POST
+def service_sync_variations(request):
+    """Re-sync variations for one or all variable products."""
+    from b2b.models import Product
+    from b2b.services.woo_sync import sync_variations_for_product
+
+    product_id = request.POST.get("product_id")
+    ok = 0
+    failed = []
+
+    qs = Product.objects.exclude(woo_id__isnull=True)
+    if product_id:
+        qs = qs.filter(id=product_id)
+
+    for p in qs:
+        try:
+            count = sync_variations_for_product(p)
+            if count:
+                ok += count
+        except Exception as e:
+            failed.append(f"{p.sku}: {e}")
+
+    if ok:
+        messages.success(request, f"Варіації оновлено: {ok} шт.")
+    if failed:
+        for err in failed[:5]:
+            messages.warning(request, f"Помилка: {err}")
+
+    return redirect("reports:service_woo_import")
 
 @user_passes_test(_is_superuser)
 @require_POST

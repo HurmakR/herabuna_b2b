@@ -1,141 +1,241 @@
-{% extends 'b2b/base.html' %}
-
-{% block title %}Marketplace → Замовлення — Herabuna B2B{% endblock %}
+{% extends "b2b/base.html" %}
+{% block title %}Маркетплейс — черга імпорту{% endblock %}
+{% block breadcrumb %}Marketplace → Замовлення{% endblock %}
 
 {% block content %}
-<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+<div class="crm-page-header">
   <div>
-    <h1 class="h4 mb-1">Marketplace → Замовлення</h1>
-    <div class="text-muted small">
-      Імпорт замовлень з WooCommerce та Rozetka. Ця сторінка потрібна для синку та первинного приймання в обробку.
-      Після приймання замовлення далі ведеться зі сторінки деталей / списку замовлень клієнтів.
+    <h1 class="crm-page-title">Черга імпорту з маркетплейсу</h1>
+    <div class="crm-page-sub">
+      Нові замовлення що ще не прийняті в роботу — {{ total_new }} шт.
+      Прийняті автоматично зникають звідси і переходять в основний список замовлень.
     </div>
   </div>
-  <div class="d-flex gap-2">
-    <a class="btn btn-outline-secondary" href="{% url 'reports:service_dashboard' %}">← Сервіс</a>
-  </div>
-</div>
 
-<div class="card shadow-sm mb-3">
-  <div class="card-body">
-    <form method="post" action="{% url 'reports:service_marketplace_orders_sync' %}" class="row gy-2 gx-3 align-items-end">
+  <div style="display:flex;gap:8px;align-items:center">
+    {# Sync button #}
+    <form method="post" action="{% url 'reports:service_marketplace_orders_sync' %}">
       {% csrf_token %}
-      <div class="col-12 col-md-2">
-        <label class="form-label">Вікно, днів</label>
-        <input class="form-control" type="number" name="days" value="{{ days }}" min="1" max="120">
-      </div>
-
-      <div class="col-12 col-md-4">
-        <div class="form-check mt-4">
-          <input class="form-check-input" type="checkbox" name="auto_apply" value="1" id="auto_apply" checked>
-          <label class="form-check-label" for="auto_apply">
-            Автоматично прийняти в обробку (зарезервувати склад)
-          </label>
-        </div>
-      </div>
-
-      <div class="col-12 col-md-6 d-flex flex-wrap gap-2 justify-content-md-end">
-        <button class="btn btn-primary" name="source" value="all">Sync Woo + Rozetka</button>
-        <button class="btn btn-outline-primary" name="source" value="woo">Sync Woo</button>
-        <button class="btn btn-outline-primary" name="source" value="rozetka">Sync Rozetka</button>
-      </div>
+      <input type="hidden" name="source" value="all">
+      <input type="hidden" name="days" value="{{ days }}">
+      <button class="btn-crm-primary" type="submit">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M13.5 8A5.5 5.5 0 1 1 8 2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.5 2.5v3h-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Синхронізувати
+      </button>
     </form>
+    {% if orders %}
+    <form method="post" action="{% url 'reports:service_marketplace_clear_queue' %}"
+          onsubmit="return confirm('Видалити всі {{ orders|length }} чернеток з черги?')">
+      {% csrf_token %}
+      <button class="btn-crm-danger" type="submit" style="font-size:12px">
+        🗑 Очистити чергу
+      </button>
+    </form>
+    {% endif %}
   </div>
 </div>
 
-<form method="post" action="{% url 'reports:service_marketplace_orders_apply' %}">
-  {% csrf_token %}
-  <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-2">
-    <div class="d-flex gap-2 align-items-center">
-      <select class="form-select form-select-sm" name="action" style="max-width:280px;">
-        <option value="accept">Прийняти в обробку (резерв)</option>
-        <option value="reject">Скасувати / звільнити резерв</option>
+{# Filters #}
+<div class="crm-filter-bar" style="margin-bottom:16px">
+  <form method="get" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+    <div class="crm-filter-group">
+      <div class="crm-filter-label">Канал</div>
+      <select name="channel" class="form-select form-select-sm" style="min-width:130px">
+        <option value="" {% if not channel %}selected{% endif %}>Всі</option>
+        <option value="woo"     {% if channel == 'woo' %}selected{% endif %}>WooCommerce</option>
+        <option value="rozetka" {% if channel == 'rozetka' %}selected{% endif %}>Rozetka</option>
       </select>
-      <button class="btn btn-sm btn-outline-secondary">Застосувати до вибраних</button>
     </div>
+    <div class="crm-filter-group">
+      <div class="crm-filter-label">Глибина (днів)</div>
+      <select name="days" class="form-select form-select-sm" style="min-width:110px">
+        <option value="7"  {% if days == 7 %}selected{% endif %}>7 днів</option>
+        <option value="14" {% if days == 14 %}selected{% endif %}>14 днів</option>
+        <option value="30" {% if days == 30 %}selected{% endif %}>30 днів</option>
+        <option value="60" {% if days == 60 %}selected{% endif %}>60 днів</option>
+      </select>
+    </div>
+    <button type="submit" class="btn-crm" style="height:36px">Фільтрувати</button>
+  </form>
+</div>
 
-    <div class="text-muted small">
-      Показано останні {{ orders|length }} замовлень (до 200).
+{% if not orders %}
+  <div style="background:var(--crm-surface);border:1px solid var(--crm-border);border-radius:var(--radius-lg);padding:48px;text-align:center;color:var(--crm-muted)">
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" style="margin-bottom:12px;opacity:.3"><path d="M9 12l2 2 4-4M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    <div style="font-size:15px;font-weight:500;margin-bottom:4px">Черга порожня</div>
+    <div style="font-size:13px">Всі замовлення прийняті або нових немає. Натисніть «Синхронізувати» щоб перевірити.</div>
+  </div>
+{% else %}
+
+<form method="post" action="{% url 'reports:service_marketplace_orders_apply' %}" id="ordersForm">
+  {% csrf_token %}
+
+  {# Bulk actions bar #}
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--crm-muted)">
+      <input type="checkbox" id="selectAll" style="width:15px;height:15px">
+      Вибрати всі
+    </label>
+    <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
+      <button type="submit" name="action" value="accept" class="btn-crm-success" onclick="return confirmAction('прийняти вибрані замовлення в роботу')">
+        ✓ Прийняти в роботу
+      </button>
+      <button type="submit" name="action" value="dismiss" class="btn-crm-danger" onclick="return confirmAction('відхилити вибрані замовлення')">
+        ✕ Відхилити
+      </button>
     </div>
   </div>
 
-  <div class="table-responsive">
-    <table class="table table-sm align-middle table-hover bg-white border">
-      <thead class="table-light">
-        <tr>
-          <th style="width:36px;">
-            <input class="form-check-input" type="checkbox" id="check_all" onclick="document.querySelectorAll('input[name=order_ids]').forEach(cb=>cb.checked=this.checked)">
-          </th>
-          <th>Канал</th>
-          <th>External</th>
-          <th>Статус (канал)</th>
-          <th>Дата</th>
-          <th>Внутр. статус</th>
-          <th>Оплата</th>
-          <th>Резерв</th>
-          <th>Проблеми</th>
-        </tr>
-      </thead>
-      <tbody>
-      {% for o in orders %}
-        <tr>
-          <td>
-            <input class="form-check-input" type="checkbox" name="order_ids" value="{{ o.id }}">
-          </td>
-          <td>
-            {% if o.channel == 'woo' %}
-              <span class="badge bg-primary">Woo</span>
-            {% elif o.channel == 'rozetka' %}
-              <span class="badge bg-success">Rozetka</span>
-            {% else %}
-              <span class="badge bg-secondary">{{ o.channel }}</span>
+  {# Orders list #}
+  <div style="display:flex;flex-direction:column;gap:8px">
+    {% for o in orders %}
+    <div style="background:var(--crm-surface);border:1px solid var(--crm-border);border-radius:var(--radius-lg);padding:14px 16px;
+                {% if o.unmatched_count %}border-left:3px solid #E24B4A;border-radius:0 var(--radius-lg) var(--radius-lg) 0{% endif %}">
+      <div style="display:grid;grid-template-columns:28px auto 1fr auto auto auto;align-items:start;gap:12px">
+
+        {# Checkbox #}
+        <input type="checkbox" name="order_ids" value="{{ o.id }}"
+               class="order-check" style="width:15px;height:15px;margin-top:2px;cursor:pointer">
+
+        {# Channel badge #}
+        <div style="padding-top:1px">
+          {% if o.channel == 'woo' %}
+            <span class="crm-badge crm-badge-channel">Woo</span>
+          {% elif o.channel == 'rozetka' %}
+            <span class="crm-badge" style="background:#EAF3DE;color:#3B6D11">Rozetka</span>
+          {% endif %}
+        </div>
+
+        {# Main info #}
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+            <a href="{% url 'b2b:order_detail' o.id %}"
+               style="font-size:14px;font-weight:500;color:var(--crm-blue);text-decoration:none">
+              #{{ o.external_id }}
+            </a>
+            <span style="font-size:11px;color:var(--crm-muted)">
+              {{ o.external_created_at|date:"d.m.Y H:i"|default:o.created_at|date:"d.m.Y H:i" }}
+            </span>
+            {% if o.external_status %}
+              <span class="crm-badge" style="background:var(--crm-gray-bg);color:var(--crm-gray-text);font-size:10px">
+                {{ o.external_status }}
+              </span>
             {% endif %}
-          </td>
-          <td>
-            <div class="fw-semibold">
-              <a href="{% url 'b2b:order_detail' o.id %}" class="text-decoration-none">
-                #{{ o.external_id }}
-              </a>
+            {% if o.payment_label %}
+              <span class="crm-badge" style="background:var(--crm-amber-bg);color:var(--crm-amber);font-size:10px">
+                {{ o.payment_label }}
+              </span>
+            {% endif %}
+            {% if o.requires_control_payment %}
+              <span class="crm-badge crm-badge-cancelled" style="font-size:10px">Контроль оплати</span>
+            {% endif %}
+          </div>
+
+          {# Note / customer #}
+          <div style="font-size:12px;color:var(--crm-muted);margin-bottom:6px">{{ o.note }}</div>
+
+          {# Items #}
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            {% for item in o.items.all %}
+              <span style="font-size:11px;background:var(--crm-bg);border:1px solid var(--crm-border);
+                           border-radius:4px;padding:2px 7px;color:var(--crm-text)">
+                {{ item.product.sku }} × {{ item.qty }}
+                {% if item.price %}<span style="color:var(--crm-muted)">— {{ item.price }}₴</span>{% endif %}
+              </span>
+            {% endfor %}
+          </div>
+
+          {# Warnings #}
+          {% if o.unmatched_count %}
+            <div style="margin-top:6px;font-size:11px;color:var(--crm-red);font-weight:500">
+              ⚠ {{ o.unmatched_count }} позиц. не знайдено в каталозі — перевір перед прийняттям
             </div>
-            <div class="text-muted small">order_id: {{ o.id }}</div>
-          </td>
-          <td>
-            <span class="text-muted">{{ o.external_status }}</span>
-          </td>
-          <td class="small">
-            {% if o.external_created_at %}{{ o.external_created_at|date:"Y-m-d H:i" }}{% else %}{{ o.created_at|date:"Y-m-d H:i" }}{% endif %}
-          </td>
-          <td>
-            <span class="badge bg-light text-dark border">{{ o.status }}</span>
-          </td>
-          <td>
-            {% if o.payment_label %}<span class="badge bg-light text-dark border">{{ o.payment_label }}</span>{% endif %}
-            {% if o.requires_control_payment %}<span class="badge bg-danger ms-1">Контроль оплати</span>{% endif %}
-          </td>
-          <td>
-            {% if o.reserved_qty|default:0 > 0 %}
-              <span class="badge bg-warning text-dark">{{ o.reserved_qty }} шт</span>
-            {% else %}
-              <span class="text-muted small">—</span>
-            {% endif %}
-          </td>
-          <td>
-            {% if o.unmatched_count|default:0 > 0 %}
-              <span class="badge bg-danger">SKU не знайдено: {{ o.unmatched_count }}</span>
-            {% endif %}
-            {% if o.sync_error %}
-              <div class="text-danger small mt-1">{{ o.sync_error }}</div>
-            {% endif %}
-          </td>
-        </tr>
-      {% empty %}
-        <tr>
-          <td colspan="9" class="text-muted">Немає даних. Натисни Sync.</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</form>
+          {% endif %}
+          {% if o.sync_error %}
+            <div style="margin-top:4px;font-size:11px;color:var(--crm-red)">{{ o.sync_error }}</div>
+          {% endif %}
+        </div>
 
+        {# Shipping #}
+        <div style="min-width:140px">
+          {% if o.shipping_city %}
+            <div style="font-size:12px;font-weight:500">{{ o.shipping_city }}</div>
+            <div style="font-size:11px;color:var(--crm-muted)">{{ o.shipping_warehouse|truncatechars:40 }}</div>
+            {% if o.shipping_recipient %}
+              <div style="font-size:11px;color:var(--crm-muted);margin-top:2px">{{ o.shipping_recipient }}</div>
+            {% endif %}
+          {% else %}
+            <span style="font-size:11px;color:var(--crm-muted)">адреса не заповнена</span>
+          {% endif %}
+          {% if o.shipping_ttn %}
+            <div style="font-size:11px;font-family:monospace;font-weight:500;margin-top:4px;color:var(--crm-text)">
+              ТТН: {{ o.shipping_ttn }}
+            </div>
+          {% endif %}
+        </div>
+
+        {# Total #}
+        <div style="text-align:right;font-size:15px;font-weight:500;white-space:nowrap;min-width:80px">
+          {{ o.total|floatformat:2 }} ₴
+        </div>
+
+        {# Per-row actions #}
+        <div style="display:flex;flex-direction:column;gap:5px;min-width:110px">
+          <button type="submit" name="action" value="accept"
+                  form="ordersForm"
+                  onclick="selectOnly({{ o.id }}); return confirmAction('прийняти це замовлення')"
+                  class="btn-crm-success" style="width:100%;font-size:11px;padding:5px 8px">
+            ✓ Прийняти
+          </button>
+          <button type="submit" name="action" value="dismiss"
+                  form="ordersForm"
+                  onclick="selectOnly({{ o.id }}); return confirmAction('відхилити це замовлення')"
+                  class="btn-crm-danger" style="width:100%;font-size:11px;padding:5px 8px">
+            ✕ Відхилити
+          </button>
+          <a href="{% url 'b2b:order_detail' o.id %}" class="btn-crm" style="width:100%;font-size:11px;padding:5px 8px;justify-content:center">
+            Деталі
+          </a>
+        </div>
+
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {# Bottom bulk bar #}
+  {% if orders|length > 5 %}
+  <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+    <button type="submit" name="action" value="accept" class="btn-crm-success" onclick="return confirmAction('прийняти всі вибрані')">
+      ✓ Прийняти вибрані
+    </button>
+    <button type="submit" name="action" value="dismiss" class="btn-crm-danger" onclick="return confirmAction('відхилити всі вибрані')">
+      ✕ Відхилити вибрані
+    </button>
+  </div>
+  {% endif %}
+
+</form>
+{% endif %}
+
+<script>
+document.getElementById('selectAll').addEventListener('change', function() {
+  document.querySelectorAll('.order-check').forEach(cb => cb.checked = this.checked);
+});
+
+function selectOnly(orderId) {
+  document.querySelectorAll('.order-check').forEach(cb => {
+    cb.checked = (parseInt(cb.value) === orderId);
+  });
+}
+
+function confirmAction(msg) {
+  const checked = document.querySelectorAll('.order-check:checked').length;
+  if (checked === 0) {
+    alert('Оберіть хоча б одне замовлення.');
+    return false;
+  }
+  return confirm(`Ви впевнені що хочете ${msg}? (${checked} шт.)`);
+}
+</script>
 {% endblock %}

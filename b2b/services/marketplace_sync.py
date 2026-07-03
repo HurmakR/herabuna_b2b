@@ -1,35 +1,16 @@
 from __future__ import annotations
 
-from datetime import timedelta
-from typing import List
-
-from django.utils import timezone
-
-from b2b.models import Order
-from b2b.services.marketplace_orders import SyncResult, safe_apply_policy, upsert_external_order
+from b2b.services.marketplace_orders import SyncResult, upsert_external_order
 from b2b.services.rozetka_orders import RozetkaClient, normalize_rozetka_order
 from b2b.services.woo_orders import WooOrdersClient, normalize_woo_order
 
 
-def _woo_status_to_action(status: str) -> str:
-    s = (status or "").strip().lower()
-    if s in {"cancelled", "refunded", "failed"}:
-        return "release"
-    if s in {"processing", "on-hold", "completed"}:
-        return "reserve"
-    return ""
+def sync_woo_orders(*, days: int = 14) -> SyncResult:
+    """Import orders from WooCommerce — data only, never touches B2B status.
 
-
-def _rozetka_to_action(status_group: int | None) -> str:
-    if status_group is None:
-        return ""
-    # status_group: 1 - processing, 2 - successful, 3 - unsuccessful
-    if int(status_group) == 3:
-        return "release"
-    return "reserve"
-
-
-def sync_woo_orders(*, days: int = 14, auto_apply: bool = True) -> SyncResult:
+    Status lifecycle is managed exclusively in B2B via the service UI
+    (accept/ship/cancel). The sync only updates: items, address snapshot, TTN.
+    """
     res = SyncResult()
     client = WooOrdersClient()
     raw_orders = client.fetch_orders(days=days)
@@ -41,7 +22,7 @@ def sync_woo_orders(*, days: int = 14, auto_apply: bool = True) -> SyncResult:
 
         items = [(i.product, i.variant, i.qty, i.unit_price, i.name, i.raw) for i in norm.items]
 
-        order, created, items_changed, _unmatched = upsert_external_order(
+        order, created, _items_changed, _unmatched = upsert_external_order(
             channel="woo",
             external_id=norm.external_id,
             external_status=norm.external_status,
@@ -56,18 +37,11 @@ def sync_woo_orders(*, days: int = 14, auto_apply: bool = True) -> SyncResult:
         else:
             res.updated += 1
 
-        if auto_apply:
-            safe_apply_policy(
-                order=order,
-                desired_action=_woo_status_to_action(norm.external_status),
-                result=res,
-                items_changed=items_changed,
-            )
-
     return res
 
 
-def sync_rozetka_orders(*, days: int = 14, auto_apply: bool = True, types: int = 1) -> SyncResult:
+def sync_rozetka_orders(*, days: int = 14, types: int = 1) -> SyncResult:
+    """Import orders from Rozetka — data only, never touches B2B status."""
     res = SyncResult()
     client = RozetkaClient()
     raw_orders = client.fetch_orders(days=days, types=types)
@@ -79,7 +53,7 @@ def sync_rozetka_orders(*, days: int = 14, auto_apply: bool = True, types: int =
 
         items = [(i.product, None, i.qty, i.unit_price, i.name, i.raw) for i in norm.items]
 
-        order, created, items_changed, _unmatched = upsert_external_order(
+        order, created, _items_changed, _unmatched = upsert_external_order(
             channel="rozetka",
             external_id=norm.external_id,
             external_status=norm.external_status,
@@ -93,13 +67,5 @@ def sync_rozetka_orders(*, days: int = 14, auto_apply: bool = True, types: int =
             res.created += 1
         else:
             res.updated += 1
-
-        if auto_apply:
-            safe_apply_policy(
-                order=order,
-                desired_action=_rozetka_to_action(norm.status_group),
-                result=res,
-                items_changed=items_changed,
-            )
 
     return res

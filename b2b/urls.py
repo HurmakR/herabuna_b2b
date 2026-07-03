@@ -3,6 +3,7 @@ from django.urls import path, include, reverse_lazy
 from django.conf import settings
 from django.utils.module_loading import import_string
 from . import views
+from . import payment_views
 
 
 
@@ -78,4 +79,13 @@ urlpatterns = [
          auth_views.PasswordResetCompleteView.as_view(template_name="b2b/password_reset_complete.html"),
          name="password_reset_complete"),
     #path("products/price.xlsx", views.price_export, name="price_export"),
+
+    # TTN edit
+    path("orders-admin/<int:order_id>/ttn/", views.order_admin_edit_ttn, name="order_admin_edit_ttn"),
+
+    # Payment
+    path("payment/<int:order_id>/", payment_views.payment_page, name="payment_page"),
+    path("payment/<int:order_id>/proof/", payment_views.payment_proof_upload, name="payment_proof"),
+    path("payment/<int:order_id>/check/", payment_views.payment_check, name="payment_check"),
+    path("payment/mono/webhook/", payment_views.mono_webhook, name="mono_webhook"),
 ]

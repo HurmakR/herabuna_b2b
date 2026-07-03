@@ -130,6 +130,9 @@ class RozetkaClient:
     def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> dict:
         return self._request("GET", path, params=params)
 
+    def _put(self, path: str, json_body: Optional[dict] = None, params: Optional[Dict[str, Any]] = None) -> dict:
+        return self._request("PUT", path, params=params, json_body=json_body)
+
     def fetch_orders(self, *, days: int = 14, types: int = 1) -> List[dict]:
         """Fetch orders using /orders/search with changed_from window.
 
@@ -155,7 +158,7 @@ class RozetkaClient:
                     "types": types,
                     "changed_from": start,
                     "sort": "-changed",
-                    "expand": "purchases,user,delivery",
+                    "expand": "purchases,user,delivery,status_available,status_data,total_quantity,is_access_change_order",
                 },
             )
             if not data.get("success"):
@@ -183,6 +186,39 @@ class RozetkaClient:
             page += 1
 
         return all_orders[: self.max_orders]
+
+
+
+    def resolve_ship_status_id(self, raw_order: dict) -> int:
+        status_available = raw_order.get("status_available") or []
+        allowed = []
+        for row in status_available:
+            try:
+                allowed.append(int(row.get("child_id")))
+            except Exception:
+                continue
+
+        configured = int(getattr(settings, "ROZETKA_SHIP_STATUS_ID", 3) or 3)
+        if allowed:
+            if configured in allowed:
+                return configured
+            if 3 in allowed:
+                return 3
+            return allowed[0]
+        return configured
+
+    def update_order_status(self, order_id: str | int, *, status: int, ttn: str = "", seller_comment: str = "") -> dict:
+        body: Dict[str, Any] = {"status": int(status)}
+        if ttn:
+            body["ttn"] = str(ttn)
+        if seller_comment:
+            body["seller_comment"] = str(seller_comment)
+        return self._put(f"orders/{order_id}", json_body=body)
+
+    def push_shipment(self, order_id: str | int, *, raw_order: dict, ttn: str, seller_comment: str = "") -> dict:
+        status_id = self.resolve_ship_status_id(raw_order or {})
+        comment = seller_comment or f"TTN synced from Herabuna B2B: {ttn}"
+        return self.update_order_status(order_id, status=status_id, ttn=ttn, seller_comment=comment)
 
 def _to_decimal(value: Any) -> Decimal:
     try:

@@ -53,12 +53,33 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'herabuna_b2b.wsgi.application'
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db2.sqlite3',
+_db_engine = os.environ.get('DB_ENGINE', 'django.db.backends.sqlite3')
+
+if _db_engine == 'django.db.backends.postgresql':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.environ.get('DB_NAME', 'herabuna_b2b'),
+            'USER': os.environ.get('DB_USER', 'herabuna'),
+            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+            'HOST': os.environ.get('DB_HOST', 'localhost'),
+            'PORT': os.environ.get('DB_PORT', '5432'),
+            'CONN_MAX_AGE': 60,
+            'OPTIONS': {
+                'connect_timeout': 10,
+            },
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db2.sqlite3',
+            'OPTIONS': {
+                'timeout': 20,
+            },
+        }
+    }
 
 AUTH_PASSWORD_VALIDATORS = []
 
@@ -91,6 +112,7 @@ NP_SENDER_REF = os.environ.get("NP_SENDER_REF")
 NP_SENDER_CONTACT_REF = os.environ.get("NP_SENDER_CONTACT_REF")
 NP_SENDER_WAREHOUSE_REF = os.environ.get("NP_SENDER_WAREHOUSE_REF")
 NP_SENDER_CITY_REF = os.environ.get("NP_SENDER_CITY_REF")
+NP_SENDER_PHONE = os.environ.get("NP_SENDER_PHONE", "")
 
 EMAIL_BACKEND = os.environ.get("EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
 EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
@@ -114,3 +136,16 @@ ROZETKA_API_URL = os.environ.get("ROZETKA_API_URL", "https://api-seller.rozetka.
 ROZETKA_USERNAME = os.environ.get("ROZETKA_USERNAME", "")
 # IMPORTANT: Rozetka password must be base64-encoded (per Rozetka API docs).
 ROZETKA_PASSWORD_B64 = os.environ.get("ROZETKA_PASSWORD_B64", "")
+
+# SQLite WAL-mode — вирішує "database is locked" на shared hosting.
+# Не впливає на PostgreSQL (перевірка vendor всередині).
+if _db_engine != 'django.db.backends.postgresql':
+    from herabuna_b2b.db_wal import register as _register_wal
+    _register_wal()
+
+# ── Payment (IBAN / Monobank) ─────────────────────────────────────────────────
+PAYMENT_IBAN           = os.environ.get("PAYMENT_IBAN", "")
+PAYMENT_RECIPIENT_NAME = os.environ.get("PAYMENT_RECIPIENT_NAME", "ФОП Гурмак Тамара Валеріївна")
+PAYMENT_EDRPOU         = os.environ.get("PAYMENT_EDRPOU", "")
+PAYMENT_BANK_NAME      = os.environ.get("PAYMENT_BANK_NAME", "АТ УНІВЕРСАЛ БАНК")
+MONOBANK_API_TOKEN     = os.environ.get("MONOBANK_API_TOKEN", "")

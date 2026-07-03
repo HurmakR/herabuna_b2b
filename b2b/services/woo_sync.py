@@ -18,7 +18,7 @@ import requests
 from django.conf import settings
 from django.db import transaction
 
-from b2b.models import Brand, Category, Product, ProductCategory
+from b2b.models import Brand, Category, Product, ProductCategory, ProductVariant
 
 
 @dataclass
@@ -63,6 +63,24 @@ class WooClient:
         r.raise_for_status()
         return r.json(), dict(r.headers)
 
+    def fetch_variations(self, product_id: int) -> List[dict]:
+        """Fetch all variations for a variable product."""
+        page = 1
+        all_items: List[dict] = []
+        while True:
+            data, headers = self._get(
+                f"products/{product_id}/variations",
+                params={"page": page, "per_page": 100, "status": "publish"},
+            )
+            if not data:
+                break
+            all_items.extend(data)
+            total_pages = headers.get("X-WP-TotalPages")
+            if total_pages and page >= int(total_pages):
+                break
+            page += 1
+        return all_items
+
     def fetch_products_all(self, *, status: str = "publish") -> List[dict]:
         """Fetch all products with pagination."""
         page = 1
@@ -98,6 +116,8 @@ def _parse_weight_g(wc_product: dict) -> int:
         kg = float(s)
         if kg <= 0:
             return 0
+        if kg <= 500:
+            return int(round(kg))
         return int(round(kg * 1000))
     except ValueError:
         return 0
@@ -222,6 +242,83 @@ def list_missing_products_from_woo(*, status: str = "publish") -> List[WooMissin
     return missing
 
 
+def _parse_variation_attributes(wc_variation: dict) -> dict:
+    """Extract {name: value} dict from variation attributes."""
+    attrs = {}
+    for a in (wc_variation.get("attributes") or []):
+        name = (a.get("name") or "").strip()
+        val  = (a.get("option") or "").strip()
+        if name and val:
+            attrs[name] = val
+    return attrs
+
+
+def _import_variations(client: WooClient, product: Product, woo_product_id: int) -> int:
+    """Fetch and upsert all variations for a variable product.
+
+    Returns count of created/updated variants.
+    """
+    variations = client.fetch_variations(woo_product_id)
+    count = 0
+
+    for wv in variations:
+        woo_var_id = wv.get("id")
+        if woo_var_id is None:
+            continue
+        woo_var_id = int(woo_var_id)
+
+        sku        = (wv.get("sku") or "").strip()
+        attributes = _parse_variation_attributes(wv)
+        stock_qty  = int(wv.get("stock_quantity") or 0)
+        is_active  = wv.get("status") == "publish"
+
+        # Prices
+        retail_price    = 0
+        wholesale_price = 0
+        try:
+            retail_price = float(wv.get("regular_price") or wv.get("price") or 0)
+        except (ValueError, TypeError):
+            pass
+
+        # Weight
+        weight_g = _parse_weight_g(wv)
+
+        # Image
+        img_data = wv.get("image") or {}
+        image_url = (img_data.get("src") or "").strip()
+
+        obj, created = ProductVariant.objects.update_or_create(
+            woo_variation_id=woo_var_id,
+            defaults={
+                "product":         product,
+                "sku":             sku,
+                "attributes":      attributes,
+                "retail_price":    retail_price,
+                "wholesale_price": wholesale_price,
+                "stock_qty":       stock_qty,
+                "is_active":       is_active,
+                "image_url":       image_url,
+                "weight_g":        weight_g,
+            },
+        )
+        count += 1
+
+    return count
+
+
+def sync_variations_for_product(product: Product) -> int:
+    """Public helper: re-sync variations for an already-imported product.
+
+    Call from shell or service page to refresh variants without reimporting
+    the whole product.
+    """
+    client = WooClient()
+    if not product.woo_id:
+        raise ValueError(f"Product {product.sku} has no woo_id")
+    return _import_variations(client, product, product.woo_id)
+
+
+
 @transaction.atomic
 def import_missing_products_from_woo(*, woo_ids: Iterable[int], status: str = "publish") -> WooImportResult:
     """Import selected Woo products into catalog (only missing/new)."""
@@ -305,6 +402,16 @@ def import_missing_products_from_woo(*, woo_ids: Iterable[int], status: str = "p
                 p.save(update_fields=["brand"])
             if was_created:
                 brands_created += 1
+
+        # Import variations if this is a variable product
+        if wp.get("type") == "variable":
+            try:
+                _import_variations(client, p, woo_id)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Failed to import variations for %s: %s", sku, e
+                )
 
         created += 1
         existing_skus.add(sku)
